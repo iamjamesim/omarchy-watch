@@ -1,0 +1,12 @@
+[Unit]
+Description=Omarchy Watch Bluetooth bridge
+After=bluetooth.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/lib/omarchy-watch/omarchy_watchd.py
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Omarchy Watch — Plain 01</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main
+      class="face"
+      data-hour-cycle="24"
+      aria-label="Omarchy watch face preview"
+    >
+      <div class="content">
+        <p class="date" id="date">TUE, SEP 8</p>
+        <div class="time-row">
+          <time class="time" id="time" datetime="09:41">09:41</time>
+          <span class="meridiem">AM</span>
+        </div>
+
+        <div class="weather" aria-label="Partly cloudy, 68 degrees">
+          <svg
+            class="weather-icon"
+            viewBox="0 0 48 48"
+            role="img"
+            aria-label="Partly cloudy"
+          >
+            <path
+              d="M24 8v4M12.7 12.7l2.8 2.8M8 24h4M35.3 12.7l-2.8 2.8M35 24h5"
+            />
+            <path d="M16 27a10 10 0 1 1 17.4 2.9" />
+            <path
+              d="M13 39h22a6 6 0 0 0 .5-12 10.5 10.5 0 0 0-19.7 1.8A5.2 5.2 0 0 0 13 39Z"
+            />
+          </svg>
+          <span class="temperature" id="temperature">68°</span>
+        </div>
+      </div>
+    </main>
+  </body>
+</html>

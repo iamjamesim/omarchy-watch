@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.iamjamesim.omarchy-watch",
+  "name": "Omarchy Watch",
+  "version": "0.1.0",
+  "author": "James Im",
+  "license": "MIT",
+  "description": "Discover, pair, and synchronize an Omarchy Watch from the bar.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Omarchy Watch",
+    "description": "Pair and synchronize an Omarchy Watch",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "ctlPath": "omarchy-watchctl"
+    },
+    "schema": [
+      {
+        "key": "ctlPath",
+        "type": "path",
+        "label": "Watch control command",
+        "defaultValue": "omarchy-watchctl"
+      }
+    ]
+  }
+}

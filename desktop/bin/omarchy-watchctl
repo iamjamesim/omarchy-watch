@@ -1,0 +1,61 @@
+#!/usr/bin/env python3
+
+import json
+import os
+from pathlib import Path
+import socket
+import sys
+
+
+def usage() -> None:
+    print("usage: omarchy-watchctl status | pair <six-digit-code> | sync | rescan", file=sys.stderr)
+    raise SystemExit(2)
+
+
+def state_path() -> Path:
+    root = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state")))
+    return root / "omarchy-watch/status.json"
+
+
+def socket_path() -> Path:
+    root = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"))
+    return root / "omarchy-watch.sock"
+
+
+def send(command: dict) -> None:
+    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        client.connect(str(socket_path()))
+        client.sendall((json.dumps(command) + "\n").encode("utf-8"))
+        response = json.loads(client.recv(4096).decode("utf-8"))
+    except (FileNotFoundError, ConnectionRefusedError):
+        print("omarchy-watch service is not running", file=sys.stderr)
+        raise SystemExit(1)
+    finally:
+        client.close()
+    if not response.get("ok"):
+        print(response.get("error", "command failed"), file=sys.stderr)
+        raise SystemExit(1)
+
+
+def main() -> None:
+    if len(sys.argv) < 2:
+        usage()
+    action = sys.argv[1]
+    if action == "status" and len(sys.argv) == 2:
+        try:
+            print(state_path().read_text(), end="")
+        except FileNotFoundError:
+            print('{"schema":1,"status":"stopped","message":"Watch service is not running"}')
+        return
+    if action == "pair" and len(sys.argv) == 3 and sys.argv[2].isdigit() and len(sys.argv[2]) == 6:
+        send({"command": "pair", "passkey": int(sys.argv[2])})
+        return
+    if action in {"sync", "rescan"} and len(sys.argv) == 2:
+        send({"command": action})
+        return
+    usage()
+
+
+if __name__ == "__main__":
+    main()

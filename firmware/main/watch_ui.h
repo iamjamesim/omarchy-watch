@@ -1,0 +1,12 @@
+#pragma once
+
+#include <stdint.h>
+
+#include "esp_err.h"
+
+esp_err_t watch_ui_start(void);
+void watch_ui_show_pairing(uint32_t passkey);
+void watch_ui_show_time_unavailable(void);
+void watch_ui_show_face(void);
+void watch_ui_show_error(const char *message);
+void watch_ui_apply_time(int64_t unix_time, int16_t utc_offset_minutes, uint8_t hour_cycle);

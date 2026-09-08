@@ -1,0 +1,6 @@
+.tooling/
+firmware/build/
+firmware/managed_components/
+firmware/sdkconfig
+**/__pycache__/
+*.pyc
