@@ -38,8 +38,49 @@ static uint32_t profile_revision;
 static bool watch_owned;
 static omarchy_identity_v1_t identity;
 static uint8_t owner_id[16];
+static uint16_t idle_params_conn_handle = BLE_HS_CONN_HANDLE_NONE;
+
+enum {
+    IDLE_CONN_INTERVAL_MIN = 160, /* 200 ms in 1.25 ms units. */
+    IDLE_CONN_INTERVAL_MAX = 200, /* 250 ms in 1.25 ms units. */
+    IDLE_CONN_LATENCY = 3,        /* Up to one radio event per second. */
+    IDLE_CONN_TIMEOUT = 1200,     /* 12 seconds in 10 ms units. */
+};
 
 void ble_store_config_init(void);
+
+static void log_connection_parameters(uint16_t conn_handle, const char *context)
+{
+    struct ble_gap_conn_desc desc;
+    int rc = ble_gap_conn_find(conn_handle, &desc);
+    if (rc != 0) {
+        ESP_LOGW(TAG, "Could not inspect %s connection: %d", context, rc);
+        return;
+    }
+    ESP_LOGI(TAG,
+             "%s connection: interval=%u units latency=%u timeout=%u units",
+             context, desc.conn_itvl, desc.conn_latency,
+             desc.supervision_timeout);
+}
+
+static void request_idle_connection_parameters(uint16_t conn_handle)
+{
+    const struct ble_gap_upd_params params = {
+        .itvl_min = IDLE_CONN_INTERVAL_MIN,
+        .itvl_max = IDLE_CONN_INTERVAL_MAX,
+        .latency = IDLE_CONN_LATENCY,
+        .supervision_timeout = IDLE_CONN_TIMEOUT,
+        .min_ce_len = 0,
+        .max_ce_len = 0,
+    };
+    int rc = ble_gap_update_params(conn_handle, &params);
+    if (rc != 0) {
+        ESP_LOGW(TAG, "Low-power connection request failed: %d", rc);
+    } else {
+        idle_params_conn_handle = conn_handle;
+        ESP_LOGI(TAG, "Requested 200-250 ms interval with latency 3");
+    }
+}
 
 static void persist_profile(const void *profile,
                             size_t profile_size,
@@ -150,6 +191,7 @@ static int gatt_access(uint16_t conn_handle, uint16_t attr_handle,
         if (rtc_err != ESP_OK) {
             ESP_LOGW(TAG, "Could not update RTC: %s", esp_err_to_name(rtc_err));
         }
+        const bool becoming_owned = !watch_owned;
         persist_profile(&packet, packet_length, base->version, base->owner_id, base->revision);
         if (is_v3) {
             watch_ui_apply_profile_v3(&packet);
@@ -160,6 +202,10 @@ static int gatt_access(uint16_t conn_handle, uint16_t attr_handle,
         }
         ESP_LOGI(TAG, "Applied v%u profile revision %lu",
                  base->version, (unsigned long)base->revision);
+        log_connection_parameters(conn_handle, "Profile");
+        if (becoming_owned) {
+            request_idle_connection_parameters(conn_handle);
+        }
         return 0;
     }
 
@@ -205,9 +251,35 @@ static int gap_event(struct ble_gap_event *event, void *arg)
         }
         return 0;
 
+    case BLE_GAP_EVENT_LINK_ESTAB:
+        if (event->link_estab.status == 0) {
+            log_connection_parameters(event->link_estab.conn_handle, "Initial");
+        } else {
+            ESP_LOGW(TAG, "Link establishment failed: %d",
+                     event->link_estab.status);
+        }
+        return 0;
+
     case BLE_GAP_EVENT_DISCONNECT:
+        ESP_LOGI(TAG, "Disconnected, reason=%d; resuming advertising",
+                 event->disconnect.reason);
+        if (event->disconnect.conn.conn_handle == idle_params_conn_handle) {
+            idle_params_conn_handle = BLE_HS_CONN_HANDLE_NONE;
+        }
+        advertise();
+        return 0;
+
     case BLE_GAP_EVENT_ADV_COMPLETE:
         advertise();
+        return 0;
+
+    case BLE_GAP_EVENT_CONN_UPDATE:
+        if (event->conn_update.status == 0) {
+            log_connection_parameters(event->conn_update.conn_handle, "Updated");
+        } else {
+            ESP_LOGW(TAG, "Connection parameter update failed: %d",
+                     event->conn_update.status);
+        }
         return 0;
 
     case BLE_GAP_EVENT_PASSKEY_ACTION: {
@@ -225,6 +297,10 @@ static int gap_event(struct ble_gap_event *event, void *arg)
 
     case BLE_GAP_EVENT_ENC_CHANGE:
         ESP_LOGI(TAG, "Encryption changed, status=%d", event->enc_change.status);
+        if (event->enc_change.status == 0 && watch_owned &&
+            event->enc_change.conn_handle != idle_params_conn_handle) {
+            request_idle_connection_parameters(event->enc_change.conn_handle);
+        }
         return 0;
 
     case BLE_GAP_EVENT_REPEAT_PAIRING: {

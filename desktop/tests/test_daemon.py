@@ -68,7 +68,9 @@ class ConnectionStateTests(unittest.TestCase):
     def test_idle_watch_advertisements_do_not_refresh_device_tree(self):
         watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
         watch.device_path = "/org/bluez/hci0/dev_watch"
-        watch.sync_attempt_ready = mock.Mock(return_value=False)
+        watch.state = {"paired": False, "connected": False}
+        watch.connect_inflight = False
+        watch.connection_attempt_ready = mock.Mock(return_value=False)
         watch.refresh_devices = mock.Mock()
 
         watch.on_properties_changed(
@@ -90,6 +92,22 @@ class ConnectionStateTests(unittest.TestCase):
 
         paths = [call.kwargs["path"] for call in watch.bus.add_signal_receiver.call_args_list]
         self.assertEqual(paths, [watch.adapter_path, watch.device_path])
+
+    def test_verified_connection_skips_redundant_identity_round_trip(self):
+        watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
+        watch.sync_deadline = time.monotonic() + 10
+        watch.sync_timer_active = True
+        watch.write_inflight = False
+        watch.identity_verified = True
+        watch.find_characteristic = mock.Mock(side_effect=["/identity", "/control"])
+        watch.write_profile = mock.Mock()
+
+        keep_timer = watch.try_profile_sync()
+
+        self.assertFalse(keep_timer)
+        self.assertFalse(watch.sync_timer_active)
+        self.assertTrue(watch.write_inflight)
+        watch.write_profile.assert_called_once_with()
 
 
 class RevisionStateTests(unittest.TestCase):
@@ -116,23 +134,27 @@ class RevisionStateTests(unittest.TestCase):
 
             self.assertNotEqual(first, daemon.WatchDaemon.file_signature(path))
 
-    def test_failed_sync_uses_bounded_retry_backoff(self):
+    def test_failed_connection_uses_bounded_retry_backoff(self):
         watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
+        watch.state = {"paired": True}
         watch.desired_fingerprint = "new"
         watch.synced_fingerprint = "old"
         watch.force_sync_requested = False
         watch.sync_retry_delay = daemon.SYNC_RETRY_INITIAL_SECONDS
         watch.sync_retry_source = 0
+        watch.connection_failures = 3
+        watch.last_seen_at = 0
 
         with mock.patch.object(
             daemon.GLib, "timeout_add_seconds", return_value=42
         ) as timeout:
-            watch.defer_sync_retry()
+            watch.defer_connection_retry()
 
         self.assertEqual(watch.sync_retry_source, 42)
         self.assertEqual(watch.sync_retry_delay, daemon.SYNC_RETRY_INITIAL_SECONDS * 2)
         timeout.assert_called_once_with(
-            daemon.SYNC_RETRY_INITIAL_SECONDS, watch.retry_pending_sync
+            daemon.SYNC_RETRY_INITIAL_SECONDS,
+            watch.run_scheduled_connection_retry,
         )
 
     def test_network_recovery_refreshes_weather(self):
@@ -161,14 +183,40 @@ class RevisionStateTests(unittest.TestCase):
         watch.write_state = mock.Mock()
         watch.save_sync_state = mock.Mock()
         watch.schedule_profile_sync = mock.Mock()
-        watch.disconnect_after_sync = mock.Mock()
         watch.reset_sync_backoff = mock.Mock()
 
         watch.on_profile_written()
 
         self.assertEqual(watch.synced_fingerprint, "sent")
         watch.schedule_profile_sync.assert_called_once_with()
-        watch.disconnect_after_sync.assert_not_called()
+
+    def test_completed_sync_keeps_low_power_connection_open(self):
+        watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
+        watch.write_inflight = True
+        watch.preview_until = 0
+        watch.preview_sent_until = 0
+        watch.pairing_device = ""
+        watch.pending_passkey = None
+        watch.desired_fingerprint = "sent"
+        watch.synced_fingerprint = "older"
+        watch.inflight_fingerprint = "sent"
+        watch.inflight_theme = "SOLITUDE"
+        watch.inflight_was_forced = False
+        watch.force_sync_requested = False
+        watch.write_state = mock.Mock()
+        watch.save_sync_state = mock.Mock()
+        watch.schedule_profile_sync = mock.Mock()
+        watch.reset_sync_backoff = mock.Mock()
+
+        watch.on_profile_written()
+
+        watch.write_state.assert_called_once_with(
+            status="ready", paired=True, connected=True,
+            lastSynced=mock.ANY,
+            message="Time, weather, and theme are up to date",
+            theme="SOLITUDE",
+        )
+        watch.schedule_profile_sync.assert_not_called()
 
 
 class EffectiveContextTests(unittest.TestCase):

@@ -48,6 +48,8 @@ CONTEXT_RECONCILE_SECONDS = 60
 CONTEXT_DEBOUNCE_MILLISECONDS = 200
 SYNC_RETRY_INITIAL_SECONDS = 5
 SYNC_RETRY_MAX_SECONDS = 5 * 60
+RECENT_ADVERTISEMENT_SECONDS = 15
+RECENT_ADVERTISEMENT_RETRY_SECONDS = 2
 MIN_BRIGHTNESS = 20
 MAX_BRIGHTNESS = 100
 DEFAULT_BRIGHTNESS = 50
@@ -296,7 +298,10 @@ class WatchDaemon:
         self.sync_retry_source = 0
         self.sync_retry_not_before = 0.0
         self.sync_retry_delay = SYNC_RETRY_INITIAL_SECONDS
+        self.connection_failures = 0
+        self.last_seen_at = 0.0
         self.write_inflight = False
+        self.identity_verified = False
         self.discovery_active = False
         self.context_refresh_inflight = False
         self.context_refresh_source = 0
@@ -467,6 +472,10 @@ class WatchDaemon:
     def sync_attempt_ready(self) -> bool:
         return self.sync_needed() and time.monotonic() >= self.sync_retry_not_before
 
+    def connection_attempt_ready(self) -> bool:
+        return (self.state.get("paired") and self.pending_passkey is None and
+                time.monotonic() >= self.sync_retry_not_before)
+
     def reset_sync_backoff(self) -> None:
         if self.sync_retry_source:
             GLib.source_remove(self.sync_retry_source)
@@ -474,20 +483,30 @@ class WatchDaemon:
         self.sync_retry_not_before = 0.0
         self.sync_retry_delay = SYNC_RETRY_INITIAL_SECONDS
 
-    def defer_sync_retry(self) -> None:
-        if not self.sync_needed():
+    def defer_connection_retry(self) -> None:
+        if not self.state.get("paired"):
             return
-        delay = self.sync_retry_delay
+        recently_seen = (
+            self.last_seen_at > 0 and
+            time.monotonic() - self.last_seen_at <= RECENT_ADVERTISEMENT_SECONDS
+        )
+        delay = (
+            RECENT_ADVERTISEMENT_RETRY_SECONDS
+            if recently_seen and self.connection_failures <= 2
+            else self.sync_retry_delay
+        )
         self.sync_retry_not_before = time.monotonic() + delay
         self.sync_retry_delay = min(delay * 2, SYNC_RETRY_MAX_SECONDS)
         if self.sync_retry_source:
             GLib.source_remove(self.sync_retry_source)
-        self.sync_retry_source = GLib.timeout_add_seconds(delay, self.retry_pending_sync)
+        self.sync_retry_source = GLib.timeout_add_seconds(
+            delay, self.run_scheduled_connection_retry
+        )
 
-    def retry_pending_sync(self) -> bool:
+    def run_scheduled_connection_retry(self) -> bool:
         self.sync_retry_source = 0
         self.sync_retry_not_before = 0.0
-        if self.sync_needed():
+        if self.state.get("paired"):
             self.connect_and_sync()
         return False
 
@@ -646,6 +665,7 @@ class WatchDaemon:
             self.reset_sync_backoff()
             self.schedule_context_check()
             self.refresh_effective_context()
+            GLib.timeout_add(1000, self.retry_connection)
 
     def on_network_changed(self, monitor, available: bool) -> None:
         del monitor
@@ -759,6 +779,8 @@ class WatchDaemon:
         self.stop_discovery()
         paired = bool(properties.get("Paired"))
         connected = bool(properties.get("Connected"))
+        if not connected:
+            self.identity_verified = False
         previous_status = self.state.get("status")
         same_device = self.state.get("address") == properties.get("Address", "")
         if (not paired and self.pending_passkey is not None and
@@ -785,10 +807,11 @@ class WatchDaemon:
             message=message,
         )
         if paired:
-            if connected and self.sync_attempt_ready():
-                self.schedule_profile_sync()
-            elif (not connected and not self.connect_inflight and
-                  self.sync_attempt_ready()):
+            if connected:
+                if self.sync_attempt_ready():
+                    self.schedule_profile_sync()
+            elif (not self.connect_inflight and
+                  self.connection_attempt_ready()):
                 GLib.idle_add(self.connect_and_sync)
         return True
 
@@ -866,6 +889,7 @@ class WatchDaemon:
         if ADAPTER in interfaces:
             self.start_discovery()
         elif DEVICE in interfaces and self.is_watch(plain(interfaces[DEVICE])):
+            self.last_seen_at = time.monotonic()
             self.refresh_devices()
             self.update_property_receivers()
 
@@ -896,6 +920,13 @@ class WatchDaemon:
         device_path = str(path)
         if device_path == self.device_path:
             device_changes = plain(changed)
+            if "Connected" in device_changes and not device_changes["Connected"]:
+                self.identity_verified = False
+            if "RSSI" in device_changes:
+                self.last_seen_at = time.monotonic()
+                if (self.state.get("paired") and not self.state.get("connected") and
+                        not self.connect_inflight):
+                    self.reset_sync_backoff()
             connection_keys = {
                 "Connected", "Paired", "ServicesResolved", "Trusted",
                 "UUIDs", "Name", "Alias",
@@ -904,7 +935,7 @@ class WatchDaemon:
             if (device_changes.get("Connected") or
                     device_changes.get("ServicesResolved")):
                 self.reset_sync_backoff()
-            if not connection_change and not self.sync_attempt_ready():
+            if not connection_change and not self.connection_attempt_ready():
                 return
             self.refresh_devices()
             properties = self.current_device_properties
@@ -926,6 +957,7 @@ class WatchDaemon:
         self.connect_inflight = False
         self.sync_timer_active = False
         self.write_inflight = False
+        self.identity_verified = False
         self.discovery_active = False
         self.reset_sync_backoff()
         self.root = self.bluez_object("/")
@@ -1049,9 +1081,13 @@ class WatchDaemon:
             return False
         properties = self.device_properties(self.device_path)
         if properties.get("Connected"):
-            self.schedule_profile_sync()
+            if self.sync_needed():
+                self.schedule_profile_sync()
+            else:
+                self.mark_connected()
             return False
         self.connect_inflight = True
+        self.identity_verified = False
         self.write_state(status="syncing", message="Connecting to watch")
         device = self.bluez_object(self.device_path)
         dbus.Interface(device, DEVICE).Connect(
@@ -1063,14 +1099,24 @@ class WatchDaemon:
 
     def on_connected(self) -> None:
         self.connect_inflight = False
+        self.identity_verified = False
+        self.connection_failures = 0
         self.reset_sync_backoff()
-        self.schedule_profile_sync()
+        if self.sync_needed():
+            self.schedule_profile_sync()
+        else:
+            self.mark_connected()
 
     def on_connect_error(self, error) -> None:
         self.connect_inflight = False
         name = error.get_dbus_name() if isinstance(error, dbus.DBusException) else ""
+        detail = error.get_dbus_message() if isinstance(error, dbus.DBusException) else str(error)
+        self.log(f"Connection attempt failed with {name or 'unknown'}: {detail}")
         if name == "org.bluez.Error.AlreadyConnected":
-            self.schedule_profile_sync()
+            if self.sync_needed():
+                self.schedule_profile_sync()
+            else:
+                self.mark_connected()
             return
         if name == "org.bluez.Error.InProgress":
             self.write_state(status="syncing", message="Connecting to watch")
@@ -1078,8 +1124,7 @@ class WatchDaemon:
             return
         if self.handle_transport_error(error):
             return
-        message = error.get_dbus_message() if isinstance(error, dbus.DBusException) else str(error)
-        self.fail(f"Connection failed: {message}")
+        self.fail(f"Connection failed: {detail}")
 
     def retry_connection(self) -> bool:
         self.refresh_devices()
@@ -1095,16 +1140,30 @@ class WatchDaemon:
             "org.bluez.Error.NotConnected",
             "org.freedesktop.DBus.Error.NoReply",
         } or "Did not receive a reply" in message):
+            self.log(f"Bluetooth transport error {name or 'unknown'}: {message}")
+            self.identity_verified = False
             status = "bluetooth-off" if name == "org.bluez.Error.NotReady" else "disconnected"
-            friendly = "Bluetooth is off" if status == "bluetooth-off" else "Watch is out of range"
+            self.connection_failures += 1
+            recently_seen = (
+                self.last_seen_at > 0 and
+                time.monotonic() - self.last_seen_at <= RECENT_ADVERTISEMENT_SECONDS
+            )
+            friendly = (
+                "Bluetooth is off" if status == "bluetooth-off" else
+                "Couldn't connect; retrying automatically" if recently_seen or self.connection_failures <= 2 else
+                "Watch unavailable; retrying automatically"
+            )
             self.write_state(status=status, connected=False, message=friendly)
             if status != "bluetooth-off":
-                self.defer_sync_retry()
+                self.defer_connection_retry()
             return True
         return False
 
     def schedule_profile_sync(self) -> None:
         self.connect_inflight = False
+        if not self.sync_needed():
+            self.mark_connected()
+            return
         self.sync_deadline = time.monotonic() + 20
         self.write_state(status="syncing", connected=True, message="Sending desktop settings")
         if not self.sync_timer_active and not self.write_inflight:
@@ -1131,6 +1190,9 @@ class WatchDaemon:
 
         self.sync_timer_active = False
         self.write_inflight = True
+        if self.identity_verified:
+            self.write_profile()
+            return False
         characteristic = dbus.Interface(
             self.bluez_object(identity_path), GATT_CHARACTERISTIC
         )
@@ -1169,6 +1231,7 @@ class WatchDaemon:
             capabilities=capabilities,
             watchOwned=bool(owned & 1),
         )
+        self.identity_verified = True
         self.write_profile()
 
     def on_identity_error(self, error) -> None:
@@ -1294,28 +1357,14 @@ class WatchDaemon:
         self.reset_sync_backoff()
         if self.sync_needed():
             self.schedule_profile_sync()
-        else:
-            self.disconnect_after_sync()
 
-    def disconnect_after_sync(self) -> None:
-        if not self.device_path:
-            return
-        dbus.Interface(self.bluez_object(self.device_path), DEVICE).Disconnect(
-            reply_handler=self.on_disconnected_after_sync,
-            error_handler=self.on_disconnect_after_sync_error,
-            timeout=10,
-        )
-
-    def on_disconnected_after_sync(self) -> None:
+    def mark_connected(self) -> None:
+        self.connect_inflight = False
+        self.connection_failures = 0
         self.write_state(
-            status="ready", connected=False,
-            message="Up to date; watch radio is idling",
+            status="ready", paired=True, connected=True,
+            message="Connected; time, weather, and theme are up to date",
         )
-
-    def on_disconnect_after_sync_error(self, error) -> None:
-        name = error.get_dbus_name() if isinstance(error, dbus.DBusException) else ""
-        if name not in {"org.bluez.Error.NotConnected", "org.bluez.Error.NotReady"}:
-            self.log(f"Post-sync disconnect returned: {error}")
 
     def on_profile_error(self, error) -> None:
         self.write_inflight = False
