@@ -383,13 +383,17 @@ Panel {
 
         Text {
           Layout.alignment: Qt.AlignHCenter
-          textFormat: Text.RichText
-          text: '<a href="https://open-meteo.com/">WEATHER DATA BY OPEN-METEO.COM</a>'
+          textFormat: Text.PlainText
+          text: "WEATHER DATA BY OPEN-METEO.COM"
           color: root.foreground
-          linkColor: root.foreground
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
-          onLinkActivated: function(link) { Qt.openUrlExternally(link) }
+
+          MouseArea {
+            anchors.fill: parent
+            cursorShape: Qt.PointingHandCursor
+            onClicked: Qt.openUrlExternally("https://open-meteo.com/")
+          }
         }
       }
 
