@@ -7,10 +7,11 @@
 #include "bsp/esp-bsp.h"
 #include "bsp/display.h"
 #include "lvgl.h"
+#include "watch_face_layout.h"
+#include "watch_power.h"
 
 LV_FONT_DECLARE(jetbrains_mono_27);
 LV_FONT_DECLARE(jetbrains_mono_42);
-LV_FONT_DECLARE(jetbrains_mono_48_icons);
 LV_FONT_DECLARE(jetbrains_mono_114);
 
 enum {
@@ -22,10 +23,10 @@ enum {
 static const lv_color_t COLOR_BACKGROUND = LV_COLOR_MAKE(0x10, 0x13, 0x15);
 static const lv_color_t COLOR_FOREGROUND = LV_COLOR_MAKE(0xCA, 0xCC, 0xCC);
 
-static lv_obj_t *date_label;
-static lv_obj_t *clock_label;
-static lv_obj_t *meridiem_label;
+static watch_face_layout_t face_layout;
 static lv_timer_t *clock_timer;
+static lv_timer_t *battery_timer;
+static bool face_visible;
 static int16_t utc_offset_minutes;
 static uint8_t hour_cycle = 24;
 
@@ -50,12 +51,14 @@ static lv_obj_t *reset_screen(void)
     lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
     lv_obj_clear_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
 
-    date_label = NULL;
-    clock_label = NULL;
-    meridiem_label = NULL;
+    face_visible = false;
     if (clock_timer != NULL) {
         lv_timer_delete(clock_timer);
         clock_timer = NULL;
+    }
+    if (battery_timer != NULL) {
+        lv_timer_delete(battery_timer);
+        battery_timer = NULL;
     }
     return screen;
 }
@@ -63,7 +66,7 @@ static lv_obj_t *reset_screen(void)
 static void update_clock(lv_timer_t *timer)
 {
     (void)timer;
-    if (date_label == NULL || clock_label == NULL || meridiem_label == NULL) {
+    if (!face_visible) {
         return;
     }
 
@@ -71,15 +74,18 @@ static void update_clock(lv_timer_t *timer)
     struct tm now;
     gmtime_r(&shifted, &now);
 
-    static const char *weekdays[] = {"SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
+    static const char *weekdays[] = {
+        "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat",
+    };
     static const char *months[] = {
-        "JAN", "FEB", "MAR", "APR", "MAY", "JUN",
-        "JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
     };
 
     char date[24];
     char clock[8];
-    snprintf(date, sizeof(date), "%s, %s %d", weekdays[now.tm_wday], months[now.tm_mon], now.tm_mday);
+    snprintf(date, sizeof(date), "%s %d %s",
+             weekdays[now.tm_wday], now.tm_mday, months[now.tm_mon]);
 
     int display_hour = now.tm_hour;
     const char *suffix = "";
@@ -92,14 +98,35 @@ static void update_clock(lv_timer_t *timer)
     }
 
     snprintf(clock, sizeof(clock), "%02d:%02d", display_hour, now.tm_min);
-    lv_label_set_text(date_label, date);
-    lv_label_set_text(clock_label, clock);
-    lv_label_set_text(meridiem_label, suffix);
-    if (hour_cycle == 12) {
-        lv_obj_remove_flag(meridiem_label, LV_OBJ_FLAG_HIDDEN);
-    } else {
-        lv_obj_add_flag(meridiem_label, LV_OBJ_FLAG_HIDDEN);
+    watch_face_layout_set_time(&face_layout, date, clock, suffix);
+}
+
+static void update_battery(lv_timer_t *timer)
+{
+    (void)timer;
+    if (!face_visible) {
+        return;
     }
+
+    // Nerd Fonts' Material Design Icons battery-10 through battery-90,
+    // followed by the full battery glyph.
+    static const char *battery_icons[] = {
+        "󰁺", "󰁻", "󰁼", "󰁽", "󰁾", "󰁿", "󰂀", "󰂁", "󰂂", "󰁹",
+    };
+    watch_power_state_t state;
+    const char *glyph;
+    bool charging = false;
+    if (watch_power_read(&state) != ESP_OK) {
+        glyph = "󰂑";
+    } else if (!state.battery_present) {
+        glyph = state.external_power ? "" : "󰂑";
+        charging = state.external_power;
+    } else {
+        const uint8_t index = state.percent >= 100 ? 9 : state.percent / 10;
+        glyph = battery_icons[index];
+        charging = state.charging;
+    }
+    watch_face_layout_set_battery(&face_layout, glyph, charging);
 }
 
 esp_err_t watch_ui_start(void)
@@ -156,31 +183,13 @@ void watch_ui_show_face(void)
 {
     bsp_display_lock(0);
     lv_obj_t *screen = reset_screen();
-
-    date_label = make_label(screen, "TUE, SEP 8", &jetbrains_mono_27);
-    lv_obj_set_style_text_letter_space(date_label, 1, 0);
-    lv_obj_set_pos(date_label, SAFE_INLINE, 119);
-
-    clock_label = make_label(screen, "09:41", &jetbrains_mono_114);
-    lv_obj_set_style_text_letter_space(clock_label, -11, 0);
-    lv_label_set_long_mode(clock_label, LV_LABEL_LONG_CLIP);
-    lv_obj_set_size(clock_label, 310, 114);
-    lv_obj_set_pos(clock_label, SAFE_INLINE - 8, 154);
-
-    meridiem_label = make_label(screen, "AM", &jetbrains_mono_27);
-    lv_obj_set_pos(meridiem_label, 330, 164);
-    lv_obj_add_flag(meridiem_label, LV_OBJ_FLAG_HIDDEN);
-
-    lv_obj_t *weather_icon = make_label(screen, "", &jetbrains_mono_48_icons);
-    lv_label_set_long_mode(weather_icon, LV_LABEL_LONG_CLIP);
-    lv_obj_set_size(weather_icon, 64, 64);
-    lv_obj_set_pos(weather_icon, SAFE_INLINE, 303);
-
-    lv_obj_t *temperature = make_label(screen, "68°", &jetbrains_mono_42);
-    lv_obj_set_pos(temperature, 92, 319);
+    watch_face_layout_create(screen, &face_layout);
+    face_visible = true;
 
     update_clock(NULL);
+    update_battery(NULL);
     clock_timer = lv_timer_create(update_clock, 1000, NULL);
+    battery_timer = lv_timer_create(update_battery, 15000, NULL);
     bsp_display_unlock();
 }
 

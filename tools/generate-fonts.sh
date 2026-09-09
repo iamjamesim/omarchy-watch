@@ -35,8 +35,20 @@ common=(
 npx --yes lv_font_conv@1.5.3 --font "$bold_font" --format lvgl \
   --bpp 4 --no-compress --no-prefilter --force-fast-kern-format \
   --lv-include lvgl.h --size 27 \
-  --range 0x20,0x2C,0x30-0x39,0x41-0x5A \
+  --range 0x20,0x30-0x39,0x41-0x5A,0x61-0x7A,0xF041 \
   --output "$output_dir/jetbrains_mono_27.c"
+
+npx "${common[@]}" --size 14 \
+  --range 0xF0E7 \
+  --output "$output_dir/jetbrains_mono_14_battery.c"
+
+npx "${common[@]}" --size 22 \
+  --range 0x20,0x30-0x39,0x48,0x4C,0xB0 \
+  --output "$output_dir/jetbrains_mono_22.c"
+
+npx "${common[@]}" --size 30 \
+  --range 0xF0079-0xF0082,0xF0091 \
+  --output "$output_dir/jetbrains_mono_30_battery.c"
 
 npx "${common[@]}" --size 42 \
   --range 0x20,0x2D,0x30-0x39,0xB0 \

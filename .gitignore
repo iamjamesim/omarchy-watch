@@ -2,5 +2,7 @@
 firmware/build/
 firmware/managed_components/
 firmware/sdkconfig
+simulator/build/
+simulator/output/
 **/__pycache__/
 *.pyc

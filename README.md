@@ -6,10 +6,15 @@ pairing, and a dependable clock that survives normal restarts.
 
 This is an independent community project, not an official Omarchy project.
 
+![Plain 01 watch face](docs/images/plain-01.png)
+
 ## v0.1 checkpoint
 
 - Plain 01 watch face at the display's native 410 x 502 resolution
-- JetBrains Mono typography with time, date, and a weather design fixture
+- compact date/battery header, dominant clock, divided weather fixture, and
+  location footer in JetBrains Mono
+- live AXP2101 battery level and charging state
+- deterministic desktop previews rendered by the same LVGL layout as firmware
 - authenticated Bluetooth LE pairing using the six-digit code on the watch
 - persistent watch and desktop identities; pairing is a one-time setup
 - automatic time, UTC offset, and 12/24-hour synchronization from Omarchy
@@ -17,9 +22,9 @@ This is an independent community project, not an official Omarchy project.
   cannot be trusted
 - Omarchy bar panel for discovery, pairing, connection status, and manual sync
 
-Weather and palette synchronization are not live yet. The current `68°` value
-and Solitude colors are deterministic fixtures used to settle the physical
-design before expanding the profile.
+Weather, location, and palette synchronization are not live yet. The current
+San Francisco forecast and Solitude colors are deterministic fixtures used to
+settle the physical design before expanding the profile.
 
 ## Product boundary
 
@@ -43,12 +48,31 @@ constraints behind this split.
 
 - `firmware/` — ESP-IDF firmware for the Waveshare board
 - `desktop/` — BlueZ bridge, command-line client, and Omarchy shell plugin
-- `prototype/` — browser design reference and deterministic screenshots
+- `simulator/` — native LVGL renderer for exact, deterministic face previews
+- `prototype/` — early browser sketches retained as design history
 - `docs/` — product, UI, pairing, and protocol decisions
-- `tools/` — reproducible font generation
+- `tools/` — preview and font-generation commands
 
 Build and installation details live in `firmware/README.md` and
 `desktop/README.md`.
+
+## Render the watch face
+
+The face layout is shared by the firmware and a small host renderer. After
+ESP-IDF has downloaded the managed LVGL dependency, render the exact RGB565
+layout without connecting a watch:
+
+```bash
+cd firmware
+. /path/to/esp-idf/export.sh
+idf.py reconfigure
+cd ..
+./tools/render-watchface.sh
+```
+
+The command writes square and rounded PNGs under `simulator/output/`. See the
+[simulator guide](simulator/README.md) for host dependencies and the boundary
+between deterministic previews and physical-display validation.
 
 ## Direction after v0.1
 
@@ -64,6 +88,6 @@ Pebble. The first version remains a focused prototype, not a smartwatch OS.
 ## License
 
 Project code and design assets are available under the [MIT License](LICENSE).
-The generated LVGL font data in `firmware/main/fonts/` is derived from
-JetBrains Mono Nerd Font and remains under the
+Generated LVGL font subsets retain their upstream terms; see
+[third-party notices](THIRD_PARTY_NOTICES.md) and the included
 [SIL Open Font License 1.1](firmware/main/fonts-OFL.txt).

@@ -8,6 +8,7 @@
 #include "nvs_flash.h"
 
 #include "watch_ble.h"
+#include "watch_power.h"
 #include "watch_profile.h"
 #include "watch_rtc.h"
 #include "watch_ui.h"
@@ -59,6 +60,11 @@ void app_main(void)
     const uint32_t passkey = owned ? 0 : 100000 + (esp_random() % 900000);
 
     ESP_ERROR_CHECK(watch_ui_start());
+    esp_err_t power_err = watch_power_init();
+    if (power_err != ESP_OK) {
+        ESP_LOGW(TAG, "Battery telemetry unavailable: %s",
+                 esp_err_to_name(power_err));
+    }
     esp_err_t rtc_err = watch_rtc_init();
     if (rtc_err != ESP_OK) {
         ESP_LOGW(TAG, "RTC unavailable: %s", esp_err_to_name(rtc_err));

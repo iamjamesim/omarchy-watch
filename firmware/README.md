@@ -2,7 +2,9 @@
 
 ESP-IDF firmware for the Waveshare ESP32-S3-Touch-AMOLED-2.06. It renders the
 Plain 01 face, exposes the versioned Omarchy Watch BLE service, and uses the
-board's PCF85063A real-time clock to restore trusted time after a restart.
+board's PCF85063A real-time clock to restore trusted time after a restart. It
+also reads battery level and charging state directly from the AXP2101 power
+manager.
 
 The RTC is powered from the board battery through its power-management circuit.
 A normal reboot therefore keeps time. A complete battery loss can set the RTC's
@@ -15,6 +17,7 @@ plausible but wrong clock, and the bonded desktop repairs it on reconnect.
 - target `esp32s3`
 - Waveshare board support package 2.x
 - Waveshare PCF85063A component 2.x
+- LVGL 9.5.x
 
 Managed component versions are recorded in `dependencies.lock`. The partition
 layout follows Waveshare's current known-good examples, which use a 16 MB
@@ -27,6 +30,11 @@ cd firmware
 . /path/to/esp-idf/export.sh
 idf.py build
 ```
+
+The face itself lives in `main/watch_face_layout.c`. Both the device UI and the
+host preview renderer compile that source, so layout changes have one source of
+truth. From the repository root, run `./tools/render-watchface.sh` after the
+first firmware configure/build; see `simulator/README.md` for details.
 
 ## Flash
 

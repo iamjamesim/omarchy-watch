@@ -24,16 +24,25 @@ and fatal-error screens are system states rather than face variants.
 - 410 x 502 portrait canvas
 - resolved Omarchy theme background, represented by a fixed fixture in v0.1
 - JetBrains Mono throughout
-- left-aligned date, time, and weather
-- date is small but uses the same foreground color as all other content
+- compact date and battery rail
 - time is the dominant element
-- weather is one monochrome glyph and temperature; v0.1 uses fixture data
+- two restrained horizontal rules divide time, weather, and location
+- weather uses a two-column composition: icon/temperature and condition/range
+- the centered location footer identifies the forecast's provenance
+- battery level and charging state are live; weather and location remain fixtures
 - all visible content uses one color; the first face does not use the theme accent
-- no controls, cards, separators, status indicators, or secondary labels
+- no controls, cards, vertical dividers, or decorative chrome
 - no image background; the face model may gain an optional background later
 
-The default design fixture is `TUE, SEP 8`, `09:41`, and partly cloudy at `68°`.
-Deterministic fixture data makes pixel comparisons useful.
+The deterministic preview fixture is `Tue 8 Sep`, `05:59 PM`, a charging
+battery, and partly cloudy at `68°` with `H 72°`, `L 61°`, and `SAN FRANCISCO`.
+Fixed fixture data makes pixel comparisons useful.
+
+Layout coordinates and font sizes are native display pixels; LVGL does not
+apply CSS points, DPI scaling, or a physical-millimeter conversion. Nominal
+font size selects the font's em square, while the visible glyph bounds are
+usually smaller. Positions are therefore tuned from rendered glyph bounds and
+the physical AMOLED, with a 28 px safe inline gutter.
 
 ## Content-fit contract
 
@@ -44,11 +53,15 @@ making the default typography unnecessarily small.
   fixed-width suffix slot is always reserved at the right: 12-hour mode shows
   `AM` or `PM`, while 24-hour mode makes it invisible without collapsing it.
   The main clock therefore never moves when the preference changes.
-- The date formatter chooses from a short, locale-aware list such as
-  `TUE, SEP 8`, `TUE, 8 SEP`, then `SEP 8`. It never clips an arbitrary string.
+- The date formatter currently emits the bounded English form `Tue 8 Sep`.
+  Locale-aware fallback tiers are future work.
 - Weather shows one fixed-size glyph and a rounded integer temperature. The
   accepted display range is `-99°` through `199°`; invalid or unavailable data
   becomes `--°`.
+- Battery state uses ten discrete fill glyphs. Charging adds a separate bolt so
+  the battery body continues to communicate level.
+- The location label has a fixed width and truncates rather than entering the
+  rounded display corners.
 - Future locale and weather support will use approved font-size tiers. Firmware
   will measure rendered text and select the largest tier that fits rather than
   scaling continuously.
@@ -56,8 +69,20 @@ making the default typography unnecessarily small.
   digits, negative and three-digit weather, both hour cycles, and the longest
   supported localized date tokens.
 
-The browser prototype and v0.1 LVGL face use the preferred English tier. Their
-input is deliberately bounded until the fallback tiers are implemented.
+The v0.1 LVGL face uses the preferred English tier. Its input is deliberately
+bounded until the fallback tiers are implemented.
+
+## Preview contract
+
+`firmware/main/watch_face_layout.c` is the visual source of truth. The firmware
+and `simulator/render_watchface.c` compile it with the same generated fonts and
+LVGL 9.5 dependency. The simulator renders a deterministic 410 x 502 RGB565
+frame, then the preview tool exports square and rounded PNGs.
+
+This removes browser font metrics and CSS layout from firmware review. The
+simulator is exact at the framebuffer level; the physical AMOLED remains the
+authority for perceived weight, contrast, corner safety, and on-wrist scale.
+The browser prototype is retained only as early design history.
 
 ## Theme mapping
 
@@ -80,5 +105,5 @@ disabled, it will send the selected watch theme through the same interface.
 - A profile update is a full, versioned snapshot rather than a chain of patches.
 - Missing optional content must degrade to a valid face, not an error screen.
 - Background artwork is optional and must never be required for legibility.
-- The browser rendering is a design reference; the physical AMOLED is the final
-  authority for font weight, spacing, contrast, and safe-area adjustments.
+- The shared LVGL preview catches framebuffer regressions; physical hardware is
+  still the final authority for optical adjustments.
