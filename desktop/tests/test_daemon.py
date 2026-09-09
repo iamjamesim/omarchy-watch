@@ -52,6 +52,124 @@ class ConnectionStateTests(unittest.TestCase):
         )
         timeout.assert_called_once_with(1000, watch.retry_connection)
 
+    def test_unrelated_bluez_device_changes_are_ignored(self):
+        watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
+        watch.device_path = "/org/bluez/hci0/dev_watch"
+        watch.sync_attempt_ready = mock.Mock(return_value=False)
+        watch.refresh_devices = mock.Mock()
+
+        watch.on_properties_changed(
+            daemon.DEVICE, {"RSSI": dbus.Int16(-60)}, [],
+            path="/org/bluez/hci0/dev_someone_else",
+        )
+
+        watch.refresh_devices.assert_not_called()
+
+    def test_idle_watch_advertisements_do_not_refresh_device_tree(self):
+        watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
+        watch.device_path = "/org/bluez/hci0/dev_watch"
+        watch.sync_attempt_ready = mock.Mock(return_value=False)
+        watch.refresh_devices = mock.Mock()
+
+        watch.on_properties_changed(
+            daemon.DEVICE, {"RSSI": dbus.Int16(-60)}, [], path=watch.device_path
+        )
+
+        watch.refresh_devices.assert_not_called()
+
+    def test_bluez_property_receivers_are_scoped_to_adapter_and_watch(self):
+        watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
+        watch.adapter_path = "/org/bluez/hci0"
+        watch.device_path = "/org/bluez/hci0/dev_watch"
+        watch.property_signal_paths = ()
+        watch.property_signal_matches = []
+        watch.bus = mock.Mock()
+        watch.bus.add_signal_receiver.side_effect = [mock.Mock(), mock.Mock()]
+
+        watch.update_property_receivers()
+
+        paths = [call.kwargs["path"] for call in watch.bus.add_signal_receiver.call_args_list]
+        self.assertEqual(paths, [watch.adapter_path, watch.device_path])
+
+
+class RevisionStateTests(unittest.TestCase):
+    def test_pending_is_derived_from_desired_and_synced_revisions(self):
+        watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
+        watch.desired_fingerprint = "same"
+        watch.synced_fingerprint = "same"
+        watch.force_sync_requested = False
+
+        self.assertFalse(watch.sync_pending())
+        self.assertFalse(watch.sync_needed())
+
+        watch.desired_fingerprint = "new"
+
+        self.assertTrue(watch.sync_pending())
+        self.assertTrue(watch.sync_needed())
+
+    def test_file_signature_hashes_content_not_only_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "colors.toml"
+            path.write_text("aaaa")
+            first = daemon.WatchDaemon.file_signature(path)
+            path.write_text("bbbb")
+
+            self.assertNotEqual(first, daemon.WatchDaemon.file_signature(path))
+
+    def test_failed_sync_uses_bounded_retry_backoff(self):
+        watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
+        watch.desired_fingerprint = "new"
+        watch.synced_fingerprint = "old"
+        watch.force_sync_requested = False
+        watch.sync_retry_delay = daemon.SYNC_RETRY_INITIAL_SECONDS
+        watch.sync_retry_source = 0
+
+        with mock.patch.object(
+            daemon.GLib, "timeout_add_seconds", return_value=42
+        ) as timeout:
+            watch.defer_sync_retry()
+
+        self.assertEqual(watch.sync_retry_source, 42)
+        self.assertEqual(watch.sync_retry_delay, daemon.SYNC_RETRY_INITIAL_SECONDS * 2)
+        timeout.assert_called_once_with(
+            daemon.SYNC_RETRY_INITIAL_SECONDS, watch.retry_pending_sync
+        )
+
+    def test_network_recovery_refreshes_weather(self):
+        watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
+        watch.refresh_effective_context = mock.Mock()
+
+        watch.on_network_changed(None, False)
+        watch.refresh_effective_context.assert_not_called()
+
+        watch.on_network_changed(None, True)
+        watch.refresh_effective_context.assert_called_once_with()
+
+    def test_acknowledging_old_snapshot_keeps_newer_change_pending(self):
+        watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
+        watch.write_inflight = True
+        watch.preview_until = 0
+        watch.preview_sent_until = 0
+        watch.pairing_device = ""
+        watch.pending_passkey = None
+        watch.desired_fingerprint = "newer"
+        watch.synced_fingerprint = "older"
+        watch.inflight_fingerprint = "sent"
+        watch.inflight_theme = "SOLITUDE"
+        watch.inflight_was_forced = False
+        watch.force_sync_requested = False
+        watch.write_state = mock.Mock()
+        watch.save_sync_state = mock.Mock()
+        watch.schedule_profile_sync = mock.Mock()
+        watch.disconnect_after_sync = mock.Mock()
+        watch.reset_sync_backoff = mock.Mock()
+
+        watch.on_profile_written()
+
+        self.assertEqual(watch.synced_fingerprint, "sent")
+        watch.schedule_profile_sync.assert_called_once_with()
+        watch.disconnect_after_sync.assert_not_called()
+
 
 class EffectiveContextTests(unittest.TestCase):
     def test_theme_palette_reads_resolved_omarchy_colors(self):
@@ -167,8 +285,10 @@ class EffectiveContextTests(unittest.TestCase):
         watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
         watch.watch_protocol = 2
         watch.last_profile_revision = 0
-        watch.context_dirty = True
+        watch.force_sync_requested = False
+        watch.current_theme_name = lambda: "TEST"
         watch.host_id = bytes(range(16))
+        watch.brightness = daemon.DEFAULT_BRIGHTNESS
         watch.palette = (
             bytes.fromhex("101315"),
             bytes.fromhex("cacccc"),
@@ -198,14 +318,16 @@ class EffectiveContextTests(unittest.TestCase):
         self.assertEqual(unpacked[10], bytes.fromhex("cacccc"))
         self.assertEqual(unpacked[12:16], (68, 72, 61, 2))
         self.assertEqual(unpacked[16].rstrip(b"\0"), b"SAN FRANCISCO")
-        self.assertFalse(watch.context_dirty)
+        self.assertEqual(watch.inflight_fingerprint, watch.desired_fingerprint)
 
     def test_profile_v2_marks_stale_weather_unavailable(self):
         watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
         watch.watch_protocol = 2
         watch.last_profile_revision = 0
-        watch.context_dirty = True
+        watch.force_sync_requested = False
+        watch.current_theme_name = lambda: "TEST"
         watch.host_id = bytes(16)
+        watch.brightness = daemon.DEFAULT_BRIGHTNESS
         watch.palette = (
             daemon.DEFAULT_BACKGROUND,
             daemon.DEFAULT_FOREGROUND,
@@ -234,7 +356,8 @@ class EffectiveContextTests(unittest.TestCase):
         watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
         watch.watch_protocol = 3
         watch.last_profile_revision = 0
-        watch.context_dirty = True
+        watch.force_sync_requested = False
+        watch.current_theme_name = lambda: "TEST"
         watch.host_id = bytes(range(16))
         watch.palette = (
             bytes.fromhex("101315"),
@@ -269,7 +392,8 @@ class EffectiveContextTests(unittest.TestCase):
         watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
         watch.watch_protocol = 3
         watch.last_profile_revision = 0
-        watch.context_dirty = True
+        watch.force_sync_requested = False
+        watch.current_theme_name = lambda: "TEST"
         watch.host_id = bytes(16)
         watch.palette = (
             daemon.DEFAULT_BACKGROUND,

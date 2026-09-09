@@ -110,6 +110,8 @@ work.
 
 - Old watches must be able to ignore fields introduced by a newer companion.
 - A profile update is a full, versioned snapshot rather than a chain of patches.
+- Pending synchronization is derived from desired and acknowledged snapshot
+  fingerprints, so restarts and overlapping changes cannot lose work.
 - Missing optional content must degrade to a valid face, not an error screen.
 - Background artwork is optional and must never be required for legibility.
 - The shared LVGL preview catches framebuffer regressions; physical hardware is

@@ -31,6 +31,8 @@ Panel {
   readonly property bool owned: Boolean(state.paired || state.watchOwned)
   readonly property bool needsPairing: !owned && ["found", "pairing", "error"].indexOf(status) >= 0
   readonly property bool ready: status === "ready"
+  readonly property bool pending: String(state.desiredRevision || "") !== ""
+    && String(state.desiredRevision || "") !== String(state.syncedRevision || "")
   readonly property bool recovering: owned && !ready && status !== "syncing" && status !== "paired"
   readonly property bool busy: status === "pairing" || status === "syncing" || command.running
   readonly property bool brightnessAvailable: Number(state.protocol || 0) >= 3
@@ -173,6 +175,7 @@ Panel {
             text: root.status === "found" ? "READY TO PAIR"
               : root.status === "pairing" ? "PAIRING"
               : root.status === "syncing" ? "SYNCHRONIZING"
+              : root.status === "ready" && root.pending ? "SYNC PENDING"
               : root.status === "ready" ? "UP TO DATE"
               : root.status === "bluetooth-off" ? "BLUETOOTH OFF"
               : root.status === "disconnected" ? "DISCONNECTED"
@@ -310,7 +313,7 @@ Panel {
           Item { Layout.fillWidth: true }
 
           Text {
-            text: root.relativeSync(root.state.lastSynced)
+            text: root.pending ? "WAITING TO SYNC" : root.relativeSync(root.state.lastSynced)
             color: root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption

@@ -91,8 +91,11 @@ version determines packet layout.
 
 The NimBLE bond, watch device ID, owner ID, effective profile, and latest
 profile revision live in NVS. The desktop host ID lives in the user's XDG
-config directory, while transient panel status is an atomic document in the
-XDG state directory. Neither side treats the BLE address as durable identity.
+config directory. The desktop also persists the fingerprint of the last
+acknowledged profile in its XDG state directory, while panel status remains an
+atomic document there. Pending work is derived by comparing desired and
+acknowledged fingerprints; it is not represented by a mutable boolean. Neither
+side treats the BLE address as durable identity.
 
 After an ordinary reboot, an owned watch reads UTC from the PCF85063A and the
 display offset, hour cycle, palette, brightness, and forecast from its cached
