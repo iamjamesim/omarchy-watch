@@ -108,13 +108,29 @@ rewrites both RTC and profile without asking the user to pair again.
 Firmware updates should preserve NVS. Erasing flash is an explicit factory
 reset and requires removing the stale bond from BlueZ as well.
 
+## Idle connection policy
+
+An owned watch and its desktop keep their encrypted BLE link open. Keeping the
+logical connection does not keep either CPU or radio continuously awake: the
+watch requests a 200–250 ms connection interval and a peripheral latency of 3,
+so it may skip three idle connection events and listen about once per second.
+The 12-second supervision timeout detects a genuinely lost link. The central
+may negotiate other valid parameters if its controller policy requires them.
+
+Between connection events, Bluetooth modem sleep, FreeRTOS tickless idle, and
+automatic light sleep remain active. A desktop profile write is therefore
+delivered at the next connection event without a new discovery, connection,
+encryption, identity-read, and disconnect cycle. A new link verifies identity
+once before using that direct path. If the laptop suspends, Bluetooth is
+disabled, or the devices move apart, supervision drops the link; the watch
+resumes low-duty advertising and the bridge reconnects with bounded backoff.
+
 ## Current vertical slice
 
 The current slice pairs, persists the bond, identities, and effective profile,
 and sends desktop time, UTC offset, desktop-derived hour cycle, resolved theme
 colors, display brightness, and live weather. It renders and restores that
 profile across normal restarts. Theme, weather, and brightness changes trigger
-a short sync connection; the bridge then disconnects and the watch returns to
-low-duty-cycle advertising. Only recent theme and brightness changes request a
-short display preview. Seasonal timezone rules and watch-side reset UI remain
-subsequent profile work.
+an immediate write over the persistent low-duty connection. Only recent theme
+and brightness changes request a short display preview. Seasonal timezone
+rules and watch-side reset UI remain subsequent profile work.

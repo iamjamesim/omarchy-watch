@@ -32,6 +32,15 @@ recover from missed filesystem events without continuous short-interval
 polling. Bluetooth discovery stops after a watch is found, and unrelated
 BlueZ device updates are ignored.
 
+After ownership, the bridge maintains the encrypted BLE connection instead of
+disconnecting after every profile write. The watch requests a 200–250 ms
+connection interval with a peripheral latency of 3, allowing its radio to skip
+idle events and normally check in about once per second. The first transaction
+on a new link verifies device identity; later updates use the already verified
+link directly. Link loss, Bluetooth restoration, and laptop resume all trigger
+bounded automatic reconnection. Pending profile work remains derived from the
+desired and acknowledged fingerprints throughout recovery.
+
 The bundled endpoint is Open-Meteo's non-commercial free API. Commercial
 derivatives must use an appropriate Open-Meteo plan or replace the provider.
 

@@ -31,6 +31,8 @@ This is an independent community project, not an official Omarchy project.
   manual sync
 - 50% default active brightness, a 15-second touch-wake display timeout, CPU
   frequency scaling, automatic light sleep, and Bluetooth modem sleep
+- persistent encrypted BLE companionship with a low-duty idle connection,
+  automatic reconnect after link loss, and no handshake for each update
 - five-second, low-battery-aware previews for prompt theme and brightness
   changes; periodic weather and time updates stay dark
 
