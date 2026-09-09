@@ -39,6 +39,12 @@ foreground, and accent colors after its output path:
 simulator/build/render-watchface /tmp/watch.ppm '#101315' '#cacccc' '#798186'
 ```
 
+Append a percentage to render the temporary battery-detail state:
+
+```bash
+simulator/build/render-watchface /tmp/battery.ppm '#101315' '#cacccc' '#798186' '70%'
+```
+
 The PNG is exact at the framebuffer level. Display calibration, ambient light,
 rounded glass, and viewing distance still make the physical watch the final
 authority for optical decisions.

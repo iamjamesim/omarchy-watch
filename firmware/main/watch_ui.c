@@ -26,15 +26,19 @@ enum {
     DISPLAY_TIMEOUT_MS = 15000,
     DISPLAY_PREVIEW_TIMEOUT_MS = 5000,
     DISPLAY_PREVIEW_MIN_BATTERY_PERCENT = 15,
+    BATTERY_PERCENTAGE_TIMEOUT_MS = 3000,
     WEATHER_MAX_AGE_SECONDS = 6 * 60 * 60,
 };
 
 static watch_face_layout_t face_layout;
 static lv_timer_t *clock_timer;
 static lv_timer_t *battery_timer;
+static lv_timer_t *battery_percentage_timer;
 static lv_timer_t *display_timer;
 static bool face_visible;
 static bool display_awake = true;
+static bool battery_percentage_visible;
+static bool battery_percentage_available;
 static int16_t utc_offset_minutes;
 static uint8_t hour_cycle = 24;
 static uint8_t active_brightness_percent = DEFAULT_BRIGHTNESS_PERCENT;
@@ -102,6 +106,12 @@ static lv_obj_t *reset_screen(void)
         lv_timer_delete(battery_timer);
         battery_timer = NULL;
     }
+    if (battery_percentage_timer != NULL) {
+        lv_timer_delete(battery_percentage_timer);
+        battery_percentage_timer = NULL;
+    }
+    battery_percentage_visible = false;
+    battery_percentage_available = false;
     if (display_awake) {
         arm_display_timeout(DISPLAY_TIMEOUT_MS);
     }
@@ -160,7 +170,9 @@ static void update_battery(lv_timer_t *timer)
     };
     watch_power_state_t state;
     const char *glyph;
+    char percentage[5] = "";
     bool charging = false;
+    battery_percentage_available = false;
     if (watch_power_read(&state) != ESP_OK) {
         glyph = "󰂑";
     } else if (!state.battery_present) {
@@ -170,8 +182,44 @@ static void update_battery(lv_timer_t *timer)
         const uint8_t index = state.percent >= 100 ? 9 : state.percent / 10;
         glyph = battery_icons[index];
         charging = state.charging;
+        snprintf(
+            percentage, sizeof(percentage), "%u%%", (unsigned int)state.percent
+        );
+        battery_percentage_available = true;
     }
-    watch_face_layout_set_battery(&face_layout, glyph, charging);
+    watch_face_layout_set_battery(
+        &face_layout, glyph, charging, percentage,
+        battery_percentage_visible && battery_percentage_available
+    );
+}
+
+static void hide_battery_percentage(lv_timer_t *timer)
+{
+    (void)timer;
+    battery_percentage_timer = NULL;
+    battery_percentage_visible = false;
+    update_battery(NULL);
+}
+
+static void on_battery_tap(lv_event_t *event)
+{
+    (void)event;
+    if (!face_visible || !display_awake) {
+        return;
+    }
+    update_battery(NULL);
+    if (!battery_percentage_available) {
+        return;
+    }
+    battery_percentage_visible = true;
+    update_battery(NULL);
+    if (battery_percentage_timer != NULL) {
+        lv_timer_delete(battery_percentage_timer);
+    }
+    battery_percentage_timer = lv_timer_create(
+        hide_battery_percentage, BATTERY_PERCENTAGE_TIMEOUT_MS, NULL
+    );
+    lv_timer_set_repeat_count(battery_percentage_timer, 1);
 }
 
 static const char *weather_icon_for_code(uint8_t code, bool night)
@@ -391,6 +439,9 @@ void watch_ui_show_face(void)
     lv_obj_t *screen = reset_screen();
     watch_face_layout_create(screen, &face_layout, &face_theme);
     face_visible = true;
+    lv_obj_add_event_cb(
+        face_layout.battery_touch, on_battery_tap, LV_EVENT_CLICKED, NULL
+    );
 
     update_clock(NULL);
     update_battery(NULL);

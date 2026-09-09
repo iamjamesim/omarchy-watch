@@ -4,7 +4,8 @@ ESP-IDF firmware for the Waveshare ESP32-S3-Touch-AMOLED-2.06. It renders the
 Plain 01 face, exposes the versioned Omarchy Watch BLE service, and uses the
 board's PCF85063A real-time clock to restore trusted time after a restart. It
 also reads battery level and charging state directly from the AXP2101 power
-manager.
+manager. The battery cluster uses the theme accent; tapping it reveals the
+exact percentage for three seconds.
 
 The display defaults to 50% brightness, follows the panel's 20–100% setting,
 and sleeps after 15 seconds; touching it wakes it and restarts the timeout.

@@ -64,11 +64,15 @@ int main(int argc, char **argv)
 {
     const char *output_path = argc > 1 ? argv[1] : "watchface.ppm";
     watch_face_theme_t theme = WATCH_FACE_DEFAULT_THEME;
-    if (argc != 1 && argc != 2 && argc != 5) {
-        fputs("usage: render-watchface [output.ppm [background foreground accent]]\n", stderr);
+    if (argc != 1 && argc != 2 && argc != 5 && argc != 6) {
+        fputs(
+            "usage: render-watchface [output.ppm "
+            "[background foreground accent [battery%]]]\n",
+            stderr
+        );
         return 2;
     }
-    if (argc == 5 &&
+    if (argc >= 5 &&
         (parse_color(argv[2], theme.background) != 0 ||
          parse_color(argv[3], theme.foreground) != 0 ||
          parse_color(argv[4], theme.accent) != 0)) {
@@ -109,7 +113,9 @@ int main(int argc, char **argv)
     watch_face_layout_t layout;
     watch_face_layout_create(lv_screen_active(), &layout, &theme);
     watch_face_layout_set_time(&layout, "Tue 8 Sep", "05:59", "PM");
-    watch_face_layout_set_battery(&layout, "󰂀", true); // U+F0080, battery-70
+    watch_face_layout_set_battery(
+        &layout, "󰂀", true, argc == 6 ? argv[5] : "70%", argc == 6
+    ); // U+F0080, battery-70
     lv_refr_now(display);
 
     const int result = write_ppm(output_path, &draw_buffer);

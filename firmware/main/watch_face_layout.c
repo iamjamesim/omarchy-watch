@@ -78,6 +78,7 @@ void watch_face_layout_create(lv_obj_t *screen,
 
     // U+F0080 is Nerd Fonts' Material Design Icons battery-70 fixture.
     layout->battery = make_label(screen, "󰂀", &jetbrains_mono_30_battery);
+    lv_obj_set_style_text_color(layout->battery, accent_color, 0);
     lv_obj_set_size(layout->battery, 44, 30);
     lv_obj_set_style_text_align(layout->battery, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_transform_pivot_x(layout->battery, 22, 0);
@@ -91,6 +92,21 @@ void watch_face_layout_create(lv_obj_t *screen,
     lv_obj_set_width(layout->battery_charge, 14);
     lv_obj_set_style_text_align(layout->battery_charge, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_pos(layout->battery_charge, 335, 65);
+
+    layout->battery_percentage = make_label(screen, "70%", &jetbrains_mono_22);
+    lv_obj_set_style_text_color(layout->battery_percentage, accent_color, 0);
+    lv_obj_set_width(layout->battery_percentage, 60);
+    lv_obj_set_style_text_align(layout->battery_percentage, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_obj_set_pos(layout->battery_percentage, 322, 64);
+    lv_obj_add_flag(layout->battery_percentage, LV_OBJ_FLAG_HIDDEN);
+
+    // Keep the visible battery compact while giving it a forgiving touch target.
+    layout->battery_touch = lv_obj_create(screen);
+    lv_obj_remove_style_all(layout->battery_touch);
+    lv_obj_set_pos(layout->battery_touch, 320, 45);
+    lv_obj_set_size(layout->battery_touch, 75, 55);
+    lv_obj_add_flag(layout->battery_touch, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(layout->battery_touch, LV_OBJ_FLAG_SCROLLABLE);
 
     layout->clock = make_label(screen, "05:59", &jetbrains_mono_114);
     lv_obj_set_style_text_color(layout->clock, accent_color, 0);
@@ -167,9 +183,20 @@ void watch_face_layout_set_time(watch_face_layout_t *layout,
 
 void watch_face_layout_set_battery(watch_face_layout_t *layout,
                                    const char *glyph,
-                                   bool charging)
+                                   bool charging,
+                                   const char *percentage,
+                                   bool show_percentage)
 {
     lv_label_set_text(layout->battery, glyph);
+    lv_label_set_text(layout->battery_percentage, percentage);
+    if (show_percentage) {
+        lv_obj_add_flag(layout->battery, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(layout->battery_charge, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(layout->battery_percentage, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+
+    lv_obj_add_flag(layout->battery_percentage, LV_OBJ_FLAG_HIDDEN);
     if (glyph[0] == '\0') {
         lv_obj_add_flag(layout->battery, LV_OBJ_FLAG_HIDDEN);
     } else {

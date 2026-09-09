@@ -30,8 +30,9 @@ and fatal-error screens are system states rather than face variants.
 - weather uses a two-column composition: icon/temperature and condition/range
 - the centered location footer identifies the forecast's provenance
 - battery level, charging state, weather, and location are live on hardware
-- the clock is the single persistent accent focal point; the charging bolt
-  repeats accent only while charging
+- the clock is the dominant accent focal point; the compact battery cluster
+  repeats accent as a counterweight in the top rail
+- tapping the battery temporarily replaces its glyph with the exact percentage
 - all supporting text and weather content remain foreground-colored
 - no controls, cards, vertical dividers, or decorative chrome
 - no image background; the face model may gain an optional background later
@@ -94,7 +95,7 @@ The prototype uses the resolved Solitude palette as its initial fixture:
 | --- | --- | --- |
 | Canvas | `bar.background` (fallback: `background`) | `#101315` |
 | Supporting content | `bar.text` (fallback: `foreground`) | `#cacccc` |
-| Clock and charging bolt | `accent` | `#798186` |
+| Clock and battery cluster | `accent` | `#798186` |
 
 These values remain the deterministic preview fixture. On hardware, the
 desktop companion reads `background`, `foreground`, and `accent` from

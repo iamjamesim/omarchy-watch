@@ -43,7 +43,7 @@ npx "${common[@]}" --size 14 \
   --output "$output_dir/jetbrains_mono_14_battery.c"
 
 npx "${common[@]}" --size 22 \
-  --range 0x20,0x30-0x39,0x48,0x4C,0xB0 \
+  --range 0x20,0x25,0x30-0x39,0x48,0x4C,0xB0 \
   --output "$output_dir/jetbrains_mono_22.c"
 
 npx "${common[@]}" --size 30 \

@@ -15,6 +15,7 @@ This is an independent community project, not an official Omarchy project.
 - compact date/battery header, dominant clock, live weather, and
   location footer in JetBrains Mono
 - live AXP2101 battery level and charging state
+- accent-colored battery status with tap-to-reveal exact percentage
 - deterministic desktop previews rendered by the same LVGL layout as firmware
 - authenticated Bluetooth LE pairing using the six-digit code on the watch
 - persistent watch and desktop identities; pairing is a one-time setup

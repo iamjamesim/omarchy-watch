@@ -22,6 +22,8 @@ typedef struct {
     lv_obj_t *meridiem;
     lv_obj_t *battery;
     lv_obj_t *battery_charge;
+    lv_obj_t *battery_percentage;
+    lv_obj_t *battery_touch;
     lv_obj_t *weather_icon;
     lv_obj_t *temperature;
     lv_obj_t *condition;
@@ -40,7 +42,9 @@ void watch_face_layout_set_time(watch_face_layout_t *layout,
                                 const char *meridiem);
 void watch_face_layout_set_battery(watch_face_layout_t *layout,
                                    const char *glyph,
-                                   bool charging);
+                                   bool charging,
+                                   const char *percentage,
+                                   bool show_percentage);
 void watch_face_layout_set_weather(watch_face_layout_t *layout,
                                    const char *icon,
                                    const char *temperature,
