@@ -122,8 +122,9 @@ automatic light sleep remain active. A desktop profile write is therefore
 delivered at the next connection event without a new discovery, connection,
 encryption, identity-read, and disconnect cycle. A new link verifies identity
 once before using that direct path. If the laptop suspends, Bluetooth is
-disabled, or the devices move apart, supervision drops the link; the watch
-resumes low-duty advertising and the bridge reconnects with bounded backoff.
+disabled, or the devices move apart, supervision drops the link; the watch uses
+a 30-second fast-reconnect advertising window, then resumes low-duty
+advertising while the bridge continues reconnecting with bounded backoff.
 
 ## Current vertical slice
 

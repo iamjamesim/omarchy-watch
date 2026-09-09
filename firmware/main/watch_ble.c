@@ -45,6 +45,11 @@ enum {
     IDLE_CONN_INTERVAL_MAX = 200, /* 250 ms in 1.25 ms units. */
     IDLE_CONN_LATENCY = 3,        /* Up to one radio event per second. */
     IDLE_CONN_TIMEOUT = 1200,     /* 12 seconds in 10 ms units. */
+    FAST_ADV_INTERVAL_MIN = 160,  /* 100 ms in 0.625 ms units. */
+    FAST_ADV_INTERVAL_MAX = 240,  /* 150 ms in 0.625 ms units. */
+    SLOW_ADV_INTERVAL_MIN = 1600, /* 1 second in 0.625 ms units. */
+    SLOW_ADV_INTERVAL_MAX = 1920, /* 1.2 seconds in 0.625 ms units. */
+    FAST_ADV_DURATION_MS = 30 * 1000,
 };
 
 void ble_store_config_init(void);
@@ -237,7 +242,7 @@ static const struct ble_gatt_svc_def services[] = {
     {0},
 };
 
-static void advertise(void);
+static void advertise(bool fast);
 
 static int gap_event(struct ble_gap_event *event, void *arg)
 {
@@ -247,7 +252,7 @@ static int gap_event(struct ble_gap_event *event, void *arg)
     switch (event->type) {
     case BLE_GAP_EVENT_CONNECT:
         if (event->connect.status != 0) {
-            advertise();
+            advertise(true);
         }
         return 0;
 
@@ -266,11 +271,11 @@ static int gap_event(struct ble_gap_event *event, void *arg)
         if (event->disconnect.conn.conn_handle == idle_params_conn_handle) {
             idle_params_conn_handle = BLE_HS_CONN_HANDLE_NONE;
         }
-        advertise();
+        advertise(true);
         return 0;
 
     case BLE_GAP_EVENT_ADV_COMPLETE:
-        advertise();
+        advertise(false);
         return 0;
 
     case BLE_GAP_EVENT_CONN_UPDATE:
@@ -318,7 +323,7 @@ static int gap_event(struct ble_gap_event *event, void *arg)
     }
 }
 
-static void advertise(void)
+static void advertise(bool fast)
 {
     struct ble_hs_adv_fields fields = {0};
     fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
@@ -342,13 +347,16 @@ static void advertise(void)
         return;
     }
 
+    const bool fast_mode = !watch_owned || fast;
     struct ble_gap_adv_params params = {
         .conn_mode = BLE_GAP_CONN_MODE_UND,
         .disc_mode = BLE_GAP_DISC_MODE_GEN,
-        .itvl_min = watch_owned ? 1600 : 160,
-        .itvl_max = watch_owned ? 1920 : 240,
+        .itvl_min = fast_mode ? FAST_ADV_INTERVAL_MIN : SLOW_ADV_INTERVAL_MIN,
+        .itvl_max = fast_mode ? FAST_ADV_INTERVAL_MAX : SLOW_ADV_INTERVAL_MAX,
     };
-    rc = ble_gap_adv_start(own_addr_type, NULL, BLE_HS_FOREVER, &params, gap_event, NULL);
+    const int32_t duration = watch_owned && fast
+        ? FAST_ADV_DURATION_MS : BLE_HS_FOREVER;
+    rc = ble_gap_adv_start(own_addr_type, NULL, duration, &params, gap_event, NULL);
     if (rc != 0 && rc != BLE_HS_EALREADY) {
         ESP_LOGE(TAG, "Advertising failed: %d", rc);
     }
@@ -360,7 +368,7 @@ static void on_sync(void)
     assert(rc == 0);
     rc = ble_hs_id_infer_auto(0, &own_addr_type);
     assert(rc == 0);
-    advertise();
+    advertise(true);
 }
 
 static void host_task(void *param)

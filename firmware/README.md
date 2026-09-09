@@ -11,14 +11,15 @@ The display defaults to 50% brightness, follows the panel's 20–100% setting,
 and sleeps after 15 seconds; touching it wakes it and restarts the timeout.
 Prompt theme and brightness changes receive a five-second preview unless the
 watch is at or below 15% battery. Routine background sync remains dark.
-Dynamic CPU frequency scaling, tickless
-idle, automatic light sleep, Bluetooth modem sleep, and slower owned-device
-advertising reduce the idle load. The cached v3 profile restores the last
-theme, brightness, and forecast without waiting for Bluetooth.
+Dynamic CPU frequency scaling, tickless idle, automatic light sleep, Bluetooth
+modem sleep, and slower owned-device advertising reduce the idle load. After a
+link loss, the watch advertises more quickly for 30 seconds before returning to
+the slower rate. The cached v3 profile restores the last theme, brightness, and
+forecast without waiting for Bluetooth.
 
-While USB power is present, firmware holds a no-light-sleep lock so the native
-USB serial/JTAG interface remains reliable for flashing and monitoring. The
-lock is released when the AXP2101 reports that external power has gone away.
+While the native serial/JTAG interface is connected to a USB host, ESP-IDF
+holds its built-in no-light-sleep lock so flashing and monitoring remain
+reliable. A charger without a data connection does not keep the watch awake.
 
 The RTC is powered from the board battery through its power-management circuit.
 A normal reboot therefore keeps time. A complete battery loss can set the RTC's

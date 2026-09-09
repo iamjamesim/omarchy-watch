@@ -4,7 +4,6 @@
 
 #include "bsp/esp-bsp.h"
 #include "driver/i2c_master.h"
-#include "esp_pm.h"
 
 enum {
     AXP2101_ADDRESS = 0x34,
@@ -21,28 +20,12 @@ enum {
 };
 
 static i2c_master_dev_handle_t power_device;
-static esp_pm_lock_handle_t external_power_lock;
-static bool external_power_lock_held;
 
 static esp_err_t read_register(uint8_t address, uint8_t *value)
 {
     return i2c_master_transmit_receive(
         power_device, &address, sizeof(address), value, sizeof(*value), I2C_TIMEOUT_MS
     );
-}
-
-static esp_err_t update_external_power_lock(bool external_power)
-{
-    if (external_power == external_power_lock_held) {
-        return ESP_OK;
-    }
-    esp_err_t err = external_power
-        ? esp_pm_lock_acquire(external_power_lock)
-        : esp_pm_lock_release(external_power_lock);
-    if (err == ESP_OK) {
-        external_power_lock_held = external_power;
-    }
-    return err;
 }
 
 esp_err_t watch_power_init(void)
@@ -71,19 +54,7 @@ esp_err_t watch_power_init(void)
         power_device = NULL;
         return err == ESP_OK ? ESP_ERR_NOT_FOUND : err;
     }
-    err = esp_pm_lock_create(ESP_PM_NO_LIGHT_SLEEP, 0, "usb-power", &external_power_lock);
-    if (err != ESP_OK) {
-        i2c_master_bus_rm_device(power_device);
-        power_device = NULL;
-        return err;
-    }
-
-    uint8_t status1;
-    err = read_register(AXP2101_REG_STATUS1, &status1);
-    if (err == ESP_OK) {
-        err = update_external_power_lock((status1 & AXP2101_STATUS1_VBUS_GOOD) != 0);
-    }
-    return err;
+    return ESP_OK;
 }
 
 esp_err_t watch_power_read(watch_power_state_t *state)
@@ -101,11 +72,6 @@ esp_err_t watch_power_read(watch_power_state_t *state)
     if (err == ESP_OK) {
         err = read_register(AXP2101_REG_STATUS2, &status2);
     }
-    if (err != ESP_OK) {
-        return err;
-    }
-
-    err = update_external_power_lock((status1 & AXP2101_STATUS1_VBUS_GOOD) != 0);
     if (err != ESP_OK) {
         return err;
     }
