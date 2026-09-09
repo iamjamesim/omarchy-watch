@@ -19,9 +19,11 @@ enum {
 const watch_face_theme_t WATCH_FACE_DEFAULT_THEME = {
     .background = {0x10, 0x13, 0x15},
     .foreground = {0xCA, 0xCC, 0xCC},
+    .accent = {0x79, 0x81, 0x86},
 };
 
 static lv_color_t foreground_color;
+static lv_color_t accent_color;
 
 static lv_obj_t *make_label(lv_obj_t *parent, const char *text, const lv_font_t *font)
 {
@@ -59,6 +61,9 @@ void watch_face_layout_create(lv_obj_t *screen,
     foreground_color = lv_color_make(
         theme->foreground[0], theme->foreground[1], theme->foreground[2]
     );
+    accent_color = lv_color_make(
+        theme->accent[0], theme->accent[1], theme->accent[2]
+    );
 
     lv_obj_clean(screen);
     lv_obj_remove_style_all(screen);
@@ -82,11 +87,13 @@ void watch_face_layout_create(lv_obj_t *screen,
 
     // U+F0E7 is Nerd Fonts' Font Awesome bolt.
     layout->battery_charge = make_label(screen, "", &jetbrains_mono_14_battery);
+    lv_obj_set_style_text_color(layout->battery_charge, accent_color, 0);
     lv_obj_set_width(layout->battery_charge, 14);
     lv_obj_set_style_text_align(layout->battery_charge, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_pos(layout->battery_charge, 335, 65);
 
     layout->clock = make_label(screen, "05:59", &jetbrains_mono_114);
+    lv_obj_set_style_text_color(layout->clock, accent_color, 0);
     lv_obj_set_style_text_letter_space(layout->clock, -11, 0);
     lv_label_set_long_mode(layout->clock, LV_LABEL_LONG_CLIP);
     lv_obj_set_size(layout->clock, 310, 114);

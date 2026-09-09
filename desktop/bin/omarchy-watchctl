@@ -8,7 +8,11 @@ import sys
 
 
 def usage() -> None:
-    print("usage: omarchy-watchctl status | pair <six-digit-code> | sync | rescan", file=sys.stderr)
+    print(
+        "usage: omarchy-watchctl status | pair <six-digit-code> | "
+        "brightness <20-100> | sync | rescan",
+        file=sys.stderr,
+    )
     raise SystemExit(2)
 
 
@@ -51,6 +55,11 @@ def main() -> None:
     if action == "pair" and len(sys.argv) == 3 and sys.argv[2].isdigit() and len(sys.argv[2]) == 6:
         send({"command": "pair", "passkey": int(sys.argv[2])})
         return
+    if action == "brightness" and len(sys.argv) == 3 and sys.argv[2].isdigit():
+        value = int(sys.argv[2])
+        if 20 <= value <= 100:
+            send({"command": "brightness", "value": value})
+            return
     if action in {"sync", "rescan"} and len(sys.argv) == 2:
         send({"command": action})
         return

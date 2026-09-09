@@ -22,7 +22,7 @@ The first face is deliberately one state and one layout. Pairing, invalid-time,
 and fatal-error screens are system states rather than face variants.
 
 - 410 x 502 portrait canvas
-- resolved Omarchy theme background and foreground
+- resolved Omarchy bar background and foreground, plus its theme accent
 - JetBrains Mono throughout
 - compact date and battery rail
 - time is the dominant element
@@ -30,7 +30,9 @@ and fatal-error screens are system states rather than face variants.
 - weather uses a two-column composition: icon/temperature and condition/range
 - the centered location footer identifies the forecast's provenance
 - battery level, charging state, weather, and location are live on hardware
-- all visible content uses one color; the first face does not use the theme accent
+- the clock is the single persistent accent focal point; the charging bolt
+  repeats accent only while charging
+- all supporting text and weather content remain foreground-colored
 - no controls, cards, vertical dividers, or decorative chrome
 - no image background; the face model may gain an optional background later
 
@@ -69,7 +71,7 @@ making the default typography unnecessarily small.
   digits, negative and three-digit weather, both hour cycles, and the longest
   supported localized date tokens.
 
-The v0.2 LVGL face uses the preferred English tier. Its input is deliberately
+The v0.3 LVGL face uses the preferred English tier. Its input is deliberately
 bounded until the fallback tiers are implemented.
 
 ## Preview contract
@@ -90,14 +92,18 @@ The prototype uses the resolved Solitude palette as its initial fixture:
 
 | Face role | Omarchy token | Value |
 | --- | --- | --- |
-| Canvas | `background` | `#101315` |
-| All visible content | `foreground` | `#cacccc` |
+| Canvas | `bar.background` (fallback: `background`) | `#101315` |
+| Supporting content | `bar.text` (fallback: `foreground`) | `#cacccc` |
+| Clock and charging bolt | `accent` | `#798186` |
 
 These values remain the deterministic preview fixture. On hardware, the
-desktop companion reads `background` and `foreground` from Omarchy's resolved
-current theme and sends them in one coherent profile update. A later profile
-revision can carry the accent for faces that use it, but Plain 01 deliberately
-does not. An explicit watch-theme override remains future work.
+desktop companion reads `background`, `foreground`, and `accent` from
+Omarchy's resolved current theme and sends them in one coherent profile
+update. `background` and `foreground` intentionally match the desktop bar;
+Plain 01 does not substitute a darker watch-only surface. If accent does not
+meet a 3:1 contrast ratio against the background, the desktop falls back to
+foreground for legibility. An explicit watch-theme override remains future
+work.
 
 ## Evolution constraints
 

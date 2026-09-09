@@ -13,6 +13,7 @@ enum {
 typedef struct {
     uint8_t background[3];
     uint8_t foreground[3];
+    uint8_t accent[3];
 } watch_face_theme_t;
 
 typedef struct {

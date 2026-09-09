@@ -6,11 +6,14 @@ board's PCF85063A real-time clock to restore trusted time after a restart. It
 also reads battery level and charging state directly from the AXP2101 power
 manager.
 
-The display runs at 30% brightness and sleeps after 15 seconds; touching it
-wakes it and restarts the timeout. Dynamic CPU frequency scaling, tickless
+The display defaults to 50% brightness, follows the panel's 20–100% setting,
+and sleeps after 15 seconds; touching it wakes it and restarts the timeout.
+Prompt theme and brightness changes receive a five-second preview unless the
+watch is at or below 15% battery. Routine background sync remains dark.
+Dynamic CPU frequency scaling, tickless
 idle, automatic light sleep, Bluetooth modem sleep, and slower owned-device
-advertising reduce the idle load. The cached v2 profile restores the last
-theme and forecast without waiting for Bluetooth.
+advertising reduce the idle load. The cached v3 profile restores the last
+theme, brightness, and forecast without waiting for Bluetooth.
 
 While USB power is present, firmware holds a no-light-sleep lock so the native
 USB serial/JTAG interface remains reliable for flashing and monitoring. The
@@ -70,6 +73,6 @@ BlueZ before pairing it again.
 | owned | invalid/unavailable | `TIME NOT SET` | bonded desktop reconnects and syncs |
 
 The RTC stores UTC. The cached profile supplies the display offset, hour cycle,
-palette, and forecast. The offset is refreshed whenever the desktop syncs;
+palette, brightness, and forecast. The offset is refreshed whenever the desktop syncs;
 automatic seasonal timezone transitions while fully offline are future profile
 work.

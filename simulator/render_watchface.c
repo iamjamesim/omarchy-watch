@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "lvgl.h"
 #include "watch_face_layout.h"
@@ -43,9 +44,37 @@ static int write_ppm(const char *path, const lv_draw_buf_t *draw_buffer)
     return 0;
 }
 
+static int parse_color(const char *text, uint8_t color[3])
+{
+    unsigned int red;
+    unsigned int green;
+    unsigned int blue;
+    char trailing;
+    if (text == NULL || strlen(text) != 7 || text[0] != '#' ||
+        sscanf(text + 1, "%2x%2x%2x%c", &red, &green, &blue, &trailing) != 3) {
+        return 1;
+    }
+    color[0] = (uint8_t)red;
+    color[1] = (uint8_t)green;
+    color[2] = (uint8_t)blue;
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     const char *output_path = argc > 1 ? argv[1] : "watchface.ppm";
+    watch_face_theme_t theme = WATCH_FACE_DEFAULT_THEME;
+    if (argc != 1 && argc != 2 && argc != 5) {
+        fputs("usage: render-watchface [output.ppm [background foreground accent]]\n", stderr);
+        return 2;
+    }
+    if (argc == 5 &&
+        (parse_color(argv[2], theme.background) != 0 ||
+         parse_color(argv[3], theme.foreground) != 0 ||
+         parse_color(argv[4], theme.accent) != 0)) {
+        fputs("colors must use #RRGGBB\n", stderr);
+        return 2;
+    }
     lv_init();
 
     lv_display_t *display = lv_display_create(WATCH_FACE_WIDTH, WATCH_FACE_HEIGHT);
@@ -78,7 +107,7 @@ int main(int argc, char **argv)
     lv_display_set_flush_cb(display, flush_display);
 
     watch_face_layout_t layout;
-    watch_face_layout_create(lv_screen_active(), &layout, &WATCH_FACE_DEFAULT_THEME);
+    watch_face_layout_create(lv_screen_active(), &layout, &theme);
     watch_face_layout_set_time(&layout, "Tue 8 Sep", "05:59", "PM");
     watch_face_layout_set_battery(&layout, "󰂀", true); // U+F0080, battery-70
     lv_refr_now(display);

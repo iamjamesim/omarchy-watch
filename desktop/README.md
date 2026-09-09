@@ -16,11 +16,12 @@ The desktop side has two parts separated by a small file/command boundary:
 - a running user systemd session
 - outbound HTTPS access for forecast refreshes
 
-The bridge reads the resolved palette from Omarchy's current theme state and
-reuses Omarchy's canonical weather location. It fetches Open-Meteo when that
-location has coordinates, refreshes every 15 minutes, and retains the last
-successful result for brief offline periods. The request includes the
-configured latitude and longitude.
+The bridge reads the resolved background, foreground, and accent from
+Omarchy's current theme state and reuses Omarchy's canonical weather location.
+It fetches Open-Meteo when that location has coordinates, refreshes every 15
+minutes, and retains the last successful result for brief offline periods. The
+request includes the configured latitude and longitude; the watch itself never
+joins Wi-Fi or calls a weather service.
 
 The bundled endpoint is Open-Meteo's non-commercial free API. Commercial
 derivatives must use an appropriate Open-Meteo plan or replace the provider.
@@ -47,7 +48,10 @@ systemctl --user status omarchy-watch.service
 journalctl --user -u omarchy-watch.service -f
 ```
 
-The command also accepts `pair <six-digit-code>`, `sync`, and `rescan`.
+The command also accepts `pair <six-digit-code>`, `brightness <20-100>`,
+`sync`, and `rescan`. Brightness defaults to 50%; changing it or the resolved
+theme requests a five-second watch preview when the battery is above 15%.
+Routine weather and time synchronization does not wake the display.
 
 Run the desktop regression tests with:
 
@@ -59,5 +63,7 @@ Persistent host identity lives at
 `$XDG_CONFIG_HOME/omarchy-watch/identity.json` (falling back to
 `~/.config`). Runtime socket and status files follow the corresponding XDG
 runtime and state directories.
+
+Watch settings live beside the identity in `settings.json`.
 
 The forecast cache follows `XDG_CACHE_HOME` (falling back to `~/.cache`).

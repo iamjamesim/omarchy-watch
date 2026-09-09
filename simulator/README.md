@@ -32,6 +32,13 @@ The date, time, weather, and battery state in
 layout for visual work; change the fixtures only when deliberately expanding
 the content-fit cases.
 
+For palette checks, the renderer binary also accepts resolved background,
+foreground, and accent colors after its output path:
+
+```bash
+simulator/build/render-watchface /tmp/watch.ppm '#101315' '#cacccc' '#798186'
+```
+
 The PNG is exact at the framebuffer level. Display calibration, ambient light,
 rounded glass, and viewing distance still make the physical watch the final
 authority for optical decisions.

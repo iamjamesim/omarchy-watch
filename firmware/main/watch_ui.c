@@ -22,8 +22,10 @@ enum {
     DISPLAY_WIDTH = 410,
     DISPLAY_HEIGHT = 502,
     SAFE_INLINE = 28,
-    ACTIVE_BRIGHTNESS_PERCENT = 30,
+    DEFAULT_BRIGHTNESS_PERCENT = 50,
     DISPLAY_TIMEOUT_MS = 15000,
+    DISPLAY_PREVIEW_TIMEOUT_MS = 5000,
+    DISPLAY_PREVIEW_MIN_BATTERY_PERCENT = 15,
     WEATHER_MAX_AGE_SECONDS = 6 * 60 * 60,
 };
 
@@ -35,9 +37,11 @@ static bool face_visible;
 static bool display_awake = true;
 static int16_t utc_offset_minutes;
 static uint8_t hour_cycle = 24;
+static uint8_t active_brightness_percent = DEFAULT_BRIGHTNESS_PERCENT;
 static watch_face_theme_t face_theme = {
     .background = {0x10, 0x13, 0x15},
     .foreground = {0xCA, 0xCC, 0xCC},
+    .accent = {0x79, 0x81, 0x86},
 };
 static bool weather_valid;
 static int64_t weather_updated_at;
@@ -48,12 +52,19 @@ static uint8_t weather_code;
 static bool weather_night;
 static char weather_location[24] = "SAN FRANCISCO";
 
-static void arm_display_timeout(void);
+static void arm_display_timeout(uint32_t timeout_ms);
 
 static lv_color_t foreground_color(void)
 {
     return lv_color_make(
         face_theme.foreground[0], face_theme.foreground[1], face_theme.foreground[2]
+    );
+}
+
+static lv_color_t accent_color(void)
+{
+    return lv_color_make(
+        face_theme.accent[0], face_theme.accent[1], face_theme.accent[2]
     );
 }
 
@@ -92,7 +103,7 @@ static lv_obj_t *reset_screen(void)
         battery_timer = NULL;
     }
     if (display_awake) {
-        arm_display_timeout();
+        arm_display_timeout(DISPLAY_TIMEOUT_MS);
     }
     return screen;
 }
@@ -232,7 +243,7 @@ static void display_sleep(lv_timer_t *timer)
     lvgl_port_stop();
 }
 
-static void arm_display_timeout(void)
+static void arm_display_timeout(uint32_t timeout_ms)
 {
     if (!display_awake) {
         return;
@@ -240,7 +251,7 @@ static void arm_display_timeout(void)
     if (display_timer != NULL) {
         lv_timer_delete(display_timer);
     }
-    display_timer = lv_timer_create(display_sleep, DISPLAY_TIMEOUT_MS, NULL);
+    display_timer = lv_timer_create(display_sleep, timeout_ms, NULL);
     lv_timer_set_repeat_count(display_timer, 1);
 }
 
@@ -250,7 +261,7 @@ static void on_touch(lv_event_t *event)
     if (!display_awake) {
         lvgl_port_resume();
         display_awake = true;
-        bsp_display_brightness_set(ACTIVE_BRIGHTNESS_PERCENT);
+        bsp_display_brightness_set(active_brightness_percent);
         if (clock_timer != NULL) {
             lv_timer_resume(clock_timer);
             update_clock(NULL);
@@ -261,7 +272,39 @@ static void on_touch(lv_event_t *event)
         }
         update_weather();
     }
-    arm_display_timeout();
+    arm_display_timeout(DISPLAY_TIMEOUT_MS);
+}
+
+static bool display_preview_allowed(void)
+{
+    watch_power_state_t state;
+    if (watch_power_read(&state) != ESP_OK || state.external_power || !state.battery_present) {
+        return true;
+    }
+    return state.percent > DISPLAY_PREVIEW_MIN_BATTERY_PERCENT;
+}
+
+static bool begin_display_preview(bool requested)
+{
+    if (!requested || display_awake || !display_preview_allowed()) {
+        return false;
+    }
+    lvgl_port_resume();
+    display_awake = true;
+    return true;
+}
+
+static void finish_profile_update(bool preview_started)
+{
+    if (!display_awake) {
+        return;
+    }
+    bsp_display_brightness_set(active_brightness_percent);
+    if (preview_started) {
+        bsp_display_lock(0);
+        arm_display_timeout(DISPLAY_PREVIEW_TIMEOUT_MS);
+        bsp_display_unlock();
+    }
 }
 
 esp_err_t watch_ui_start(void)
@@ -287,10 +330,10 @@ esp_err_t watch_ui_start(void)
     }
     gpio_wakeup_enable(BSP_LCD_TOUCH_INT, GPIO_INTR_LOW_LEVEL);
     esp_sleep_enable_gpio_wakeup();
-    esp_err_t err = bsp_display_brightness_set(ACTIVE_BRIGHTNESS_PERCENT);
+    esp_err_t err = bsp_display_brightness_set(active_brightness_percent);
     if (err == ESP_OK) {
         bsp_display_lock(0);
-        arm_display_timeout();
+        arm_display_timeout(DISPLAY_TIMEOUT_MS);
         bsp_display_unlock();
     }
     return err;
@@ -310,6 +353,7 @@ void watch_ui_show_pairing(uint32_t passkey)
     lv_obj_set_pos(eyebrow, SAFE_INLINE, 146);
 
     lv_obj_t *pin = make_label(screen, code, &jetbrains_mono_42);
+    lv_obj_set_style_text_color(pin, accent_color(), 0);
     lv_obj_set_style_text_letter_space(pin, 2, 0);
     lv_obj_set_pos(pin, SAFE_INLINE, 205);
 
@@ -329,6 +373,7 @@ void watch_ui_show_time_unavailable(void)
     lv_obj_set_pos(eyebrow, SAFE_INLINE, 126);
 
     lv_obj_t *clock = make_label(screen, "--:--", &jetbrains_mono_114);
+    lv_obj_set_style_text_color(clock, accent_color(), 0);
     lv_obj_set_style_text_letter_space(clock, -11, 0);
     lv_label_set_long_mode(clock, LV_LABEL_LONG_CLIP);
     lv_obj_set_size(clock, 310, 114);
@@ -378,13 +423,8 @@ void watch_ui_apply_time(int64_t unix_time, int16_t offset_minutes, uint8_t cycl
     watch_ui_show_face();
 }
 
-void watch_ui_apply_profile(const omarchy_profile_v2_t *profile)
+static void apply_weather(const omarchy_profile_v2_t *profile)
 {
-    if (profile == NULL) {
-        return;
-    }
-    memcpy(face_theme.background, profile->background_rgb, sizeof(face_theme.background));
-    memcpy(face_theme.foreground, profile->foreground_rgb, sizeof(face_theme.foreground));
     weather_valid = (profile->flags & OMARCHY_PROFILE_WEATHER_VALID) != 0;
     weather_updated_at = profile->weather_updated_at;
     weather_temperature = profile->temperature;
@@ -394,5 +434,35 @@ void watch_ui_apply_profile(const omarchy_profile_v2_t *profile)
     weather_night = (profile->flags & OMARCHY_PROFILE_WEATHER_NIGHT) != 0;
     memcpy(weather_location, profile->location, sizeof(weather_location));
     weather_location[sizeof(weather_location) - 1] = '\0';
+}
+
+void watch_ui_apply_profile_v2(const omarchy_profile_v2_t *profile)
+{
+    if (profile == NULL) {
+        return;
+    }
+    memcpy(face_theme.background, profile->background_rgb, sizeof(face_theme.background));
+    memcpy(face_theme.foreground, profile->foreground_rgb, sizeof(face_theme.foreground));
+    memcpy(face_theme.accent, profile->foreground_rgb, sizeof(face_theme.accent));
+    active_brightness_percent = DEFAULT_BRIGHTNESS_PERCENT;
+    apply_weather(profile);
     watch_ui_apply_time(profile->unix_time, profile->utc_offset_minutes, profile->hour_cycle);
+    finish_profile_update(false);
+}
+
+void watch_ui_apply_profile_v3(const omarchy_profile_v3_t *profile)
+{
+    if (profile == NULL) {
+        return;
+    }
+    const bool preview_started = begin_display_preview(
+        (profile->flags & OMARCHY_PROFILE_DISPLAY_PREVIEW) != 0
+    );
+    memcpy(face_theme.background, profile->background_rgb, sizeof(face_theme.background));
+    memcpy(face_theme.foreground, profile->foreground_rgb, sizeof(face_theme.foreground));
+    memcpy(face_theme.accent, profile->accent_rgb, sizeof(face_theme.accent));
+    active_brightness_percent = profile->brightness_percent;
+    apply_weather((const omarchy_profile_v2_t *)profile);
+    watch_ui_apply_time(profile->unix_time, profile->utc_offset_minutes, profile->hour_cycle);
+    finish_profile_update(preview_started);
 }

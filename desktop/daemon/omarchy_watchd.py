@@ -37,13 +37,18 @@ SERVICE_UUID = "7f510001-1b15-4f0d-b7a5-4cf3a2c98ee1"
 CONTROL_UUID = "7f510002-1b15-4f0d-b7a5-4cf3a2c98ee1"
 IDENTITY_UUID = "7f510003-1b15-4f0d-b7a5-4cf3a2c98ee1"
 AGENT_PATH = "/io/github/omarchy/watch/agent"
-PROTOCOL_VERSION = 2
+PROTOCOL_VERSION = 3
 PAIRING_TIMEOUT_SECONDS = 20
 PAIRING_CLEANUP_MILLISECONDS = 750
 WEATHER_REFRESH_SECONDS = 15 * 60
 WEATHER_MAX_AGE_SECONDS = 6 * 60 * 60
+DISPLAY_PREVIEW_SECONDS = 30
+MIN_BRIGHTNESS = 20
+MAX_BRIGHTNESS = 100
+DEFAULT_BRIGHTNESS = 50
 DEFAULT_BACKGROUND = bytes((0x10, 0x13, 0x15))
 DEFAULT_FOREGROUND = bytes((0xCA, 0xCC, 0xCC))
+DEFAULT_ACCENT = bytes((0x79, 0x81, 0x86))
 
 
 def parse_hex_color(value: object, fallback: bytes) -> bytes:
@@ -53,16 +58,45 @@ def parse_hex_color(value: object, fallback: bytes) -> bytes:
     return bytes.fromhex(text[1:])
 
 
-def theme_palette(path: Path | None = None) -> tuple[bytes, bytes]:
+def relative_luminance(color: bytes) -> float:
+    def linear(channel: int) -> float:
+        value = channel / 255
+        return value / 12.92 if value <= 0.04045 else ((value + 0.055) / 1.055) ** 2.4
+
+    red, green, blue = (linear(channel) for channel in color)
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue
+
+
+def contrast_ratio(first: bytes, second: bytes) -> float:
+    light, dark = sorted(
+        (relative_luminance(first), relative_luminance(second)), reverse=True
+    )
+    return (light + 0.05) / (dark + 0.05)
+
+
+def readable_accent(background: bytes, foreground: bytes, accent: bytes) -> bytes:
+    return accent if contrast_ratio(background, accent) >= 3 else foreground
+
+
+def theme_palette(
+    path: Path | None = None, shell_path: Path | None = None
+) -> tuple[bytes, bytes, bytes]:
     colors_path = path or Path.home() / ".local/state/omarchy/current/theme/colors.toml"
     try:
         document = tomllib.loads(colors_path.read_text())
     except (FileNotFoundError, OSError, tomllib.TOMLDecodeError):
-        return DEFAULT_BACKGROUND, DEFAULT_FOREGROUND
-    return (
-        parse_hex_color(document.get("background"), DEFAULT_BACKGROUND),
-        parse_hex_color(document.get("foreground"), DEFAULT_FOREGROUND),
-    )
+        return DEFAULT_BACKGROUND, DEFAULT_FOREGROUND, DEFAULT_ACCENT
+    background = parse_hex_color(document.get("background"), DEFAULT_BACKGROUND)
+    foreground = parse_hex_color(document.get("foreground"), DEFAULT_FOREGROUND)
+    accent = parse_hex_color(document.get("accent"), DEFAULT_ACCENT)
+    resolved_shell_path = shell_path or colors_path.with_name("shell.toml")
+    try:
+        bar = tomllib.loads(resolved_shell_path.read_text()).get("bar", {})
+        background = parse_hex_color(bar.get("background"), background)
+        foreground = parse_hex_color(bar.get("text"), foreground)
+    except (FileNotFoundError, OSError, AttributeError, tomllib.TOMLDecodeError):
+        pass
+    return background, foreground, readable_accent(background, foreground, accent)
 
 
 def ascii_label(value: object, maximum: int = 23) -> str:
@@ -137,7 +171,7 @@ def fetch_weather(opener=urllib.request.urlopen) -> dict:
     })
     request = urllib.request.Request(
         f"https://api.open-meteo.com/v1/forecast?{query}",
-        headers={"User-Agent": "omarchy-watch/0.2"},
+        headers={"User-Agent": "omarchy-watch/0.3"},
     )
     with opener(request, timeout=6) as response:
         report = json.loads(response.read())
@@ -257,6 +291,8 @@ class WatchDaemon:
         self.context_refresh_inflight = False
         self.watch_protocol = 1
         self.last_profile_revision = 0
+        self.preview_until = 0.0
+        self.preview_sent_until = 0.0
         self.agent = PairingAgent(self)
 
         self.runtime_dir = xdg_path("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
@@ -265,15 +301,18 @@ class WatchDaemon:
         self.socket_path = self.runtime_dir / "omarchy-watch.sock"
         self.status_path = self.state_dir / "status.json"
         self.identity_path = self.config_dir / "identity.json"
+        self.settings_path = self.config_dir / "settings.json"
         self.cache_dir = xdg_path("XDG_CACHE_HOME", ".cache") / "omarchy-watch"
         self.weather_cache_path = self.cache_dir / "weather.json"
         self.theme_path = Path.home() / ".local/state/omarchy/current/theme/colors.toml"
+        self.theme_shell_path = self.theme_path.with_name("shell.toml")
         self.weather_location_path = Path.home() / ".local/state/omarchy/settings/weather.json"
         self.theme_name_path = Path.home() / ".local/state/omarchy/current/theme.name"
         self.shell_config_path = xdg_path("XDG_CONFIG_HOME", ".config") / "omarchy" / "shell.json"
         self.context_signature = ()
-        self.palette = theme_palette(self.theme_path)
+        self.palette = theme_palette(self.theme_path, self.theme_shell_path)
         self.weather = self.load_cached_weather()
+        self.brightness = self.load_brightness()
         self.host_id = self.load_host_id()
         self.state = {
             "schema": 1,
@@ -287,6 +326,7 @@ class WatchDaemon:
             "theme": self.current_theme_name(),
             "weatherLocation": self.weather.get("location", ""),
             "weatherUpdated": self.weather.get("updatedAt", 0),
+            "brightness": self.brightness,
         }
         self.write_state()
 
@@ -319,6 +359,26 @@ class WatchDaemon:
         except (FileNotFoundError, OSError, TypeError, json.JSONDecodeError):
             return {}
 
+    def load_brightness(self) -> int:
+        try:
+            document = json.loads(self.settings_path.read_text())
+            brightness = int(document["brightness"])
+            if MIN_BRIGHTNESS <= brightness <= MAX_BRIGHTNESS:
+                return brightness
+        except (FileNotFoundError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+            pass
+        return DEFAULT_BRIGHTNESS
+
+    def save_settings(self) -> None:
+        self.config_dir.mkdir(parents=True, exist_ok=True)
+        temporary = self.settings_path.with_suffix(".tmp")
+        temporary.write_text(json.dumps({
+            "schema": 1,
+            "brightness": self.brightness,
+        }, indent=2) + "\n")
+        os.chmod(temporary, 0o600)
+        temporary.replace(self.settings_path)
+
     def current_theme_name(self) -> str:
         try:
             return ascii_label(self.theme_name_path.read_text(), 32)
@@ -343,10 +403,10 @@ class WatchDaemon:
         return tuple(signature)
 
     def refresh_effective_context(self) -> None:
-        palette = theme_palette(self.theme_path)
+        palette = theme_palette(self.theme_path, self.theme_shell_path)
         if palette != self.palette:
             self.palette = palette
-            self.context_changed()
+            self.context_changed(preview=True)
         if self.context_refresh_inflight:
             return
         self.context_refresh_inflight = True
@@ -379,18 +439,23 @@ class WatchDaemon:
             self.log(f"Weather refresh kept cached data: {error}")
         return False
 
-    def context_changed(self) -> None:
+    def context_changed(self, preview: bool = False) -> None:
         self.context_dirty = True
+        if preview:
+            self.preview_until = time.monotonic() + DISPLAY_PREVIEW_SECONDS
         if self.state.get("paired") and self.pending_passkey is None:
             self.connect_and_sync()
 
     def check_context_files(self) -> bool:
         signature = self.file_signature(
-            self.theme_path, self.weather_location_path, self.shell_config_path
+            self.theme_path, self.theme_shell_path,
+            self.weather_location_path, self.shell_config_path,
         )
         if signature != self.context_signature:
+            previous_signature = self.context_signature
             self.context_signature = signature
-            self.context_changed()
+            if previous_signature and signature[3] != previous_signature[3]:
+                self.context_changed()
             self.refresh_effective_context()
         return True
 
@@ -743,10 +808,18 @@ class WatchDaemon:
         if name == "org.bluez.Error.AlreadyConnected":
             self.schedule_profile_sync()
             return
+        if name == "org.bluez.Error.InProgress":
+            self.write_state(status="syncing", message="Connecting to watch")
+            GLib.timeout_add(1000, self.retry_connection)
+            return
         if self.handle_transport_error(error):
             return
         message = error.get_dbus_message() if isinstance(error, dbus.DBusException) else str(error)
         self.fail(f"Connection failed: {message}")
+
+    def retry_connection(self) -> bool:
+        self.refresh_devices()
+        return False
 
     def handle_transport_error(self, error) -> bool:
         name = error.get_dbus_name() if isinstance(error, dbus.DBusException) else ""
@@ -866,7 +939,7 @@ class WatchDaemon:
                 b"OW", 1, 1, revision, epoch, offset, cycle, 0, self.host_id,
             )
 
-        background, foreground = self.palette
+        background, foreground, accent = self.palette
         weather = self.weather
         weather_age = epoch - int(weather.get("updatedAt", 0) or 0)
         weather_valid = bool(weather.get("valid")) and 0 <= weather_age <= WEATHER_MAX_AGE_SECONDS
@@ -877,6 +950,11 @@ class WatchDaemon:
             flags |= 1 << 1
         if weather.get("night"):
             flags |= 1 << 2
+        if self.watch_protocol >= 3 and time.monotonic() <= self.preview_until:
+            flags |= 1 << 3
+            self.preview_sent_until = self.preview_until
+        else:
+            self.preview_sent_until = 0.0
 
         def bounded_temperature(name: str) -> int:
             return max(-99, min(199, int(weather.get(name, 0) or 0)))
@@ -884,16 +962,24 @@ class WatchDaemon:
         location = ascii_label(weather.get("location", "")) if weather_valid else ""
         location_bytes = location.encode("ascii")[:23].ljust(24, b"\0")
         self.context_dirty = False
-        return struct.pack(
-            "<2sBBIqhBB16s3s3sqhhhB24s",
-            b"OW", 2, 1, revision, epoch, offset, cycle, flags, self.host_id,
-            background, foreground,
+        values = (
+            b"OW", self.watch_protocol, 1, revision, epoch, offset, cycle, flags,
+            self.host_id, background, foreground,
             int(weather.get("updatedAt", 0) or 0) if weather_valid else 0,
             bounded_temperature("temperature"),
             bounded_temperature("high"),
             bounded_temperature("low"),
             max(0, min(99, int(weather.get("code", 0) or 0))),
             location_bytes,
+        )
+        if self.watch_protocol == 2:
+            return struct.pack(
+                "<2sBBIqhBB16s3s3sqhhhB24s",
+                *values,
+            )
+        return struct.pack(
+            "<2sBBIqhBB16s3s3sqhhhB24s3sB",
+            *values, accent, self.brightness,
         )
 
     @staticmethod
@@ -916,6 +1002,9 @@ class WatchDaemon:
 
     def on_profile_written(self) -> None:
         self.write_inflight = False
+        if self.preview_sent_until == self.preview_until:
+            self.preview_until = 0.0
+        self.preview_sent_until = 0.0
         now = int(time.time())
         self.pairing_device = ""
         self.pending_passkey = None
@@ -965,6 +1054,19 @@ class WatchDaemon:
             self.connect_and_sync()
         elif action == "rescan":
             self.start_discovery()
+        elif action == "brightness":
+            try:
+                brightness = int(command.get("value"))
+            except (TypeError, ValueError):
+                self.fail("Brightness must be a whole percentage")
+                return
+            if not MIN_BRIGHTNESS <= brightness <= MAX_BRIGHTNESS:
+                self.fail(f"Brightness must be between {MIN_BRIGHTNESS} and {MAX_BRIGHTNESS}")
+                return
+            self.brightness = brightness
+            self.save_settings()
+            self.write_state(brightness=brightness)
+            self.context_changed(preview=True)
         else:
             self.fail("Unknown watch command")
 
@@ -1011,7 +1113,8 @@ class WatchDaemon:
         threading.Thread(target=self.socket_server, name="watch-control", daemon=True).start()
         self.start_discovery()
         self.context_signature = self.file_signature(
-            self.theme_path, self.weather_location_path, self.shell_config_path
+            self.theme_path, self.theme_shell_path,
+            self.weather_location_path, self.shell_config_path,
         )
         self.refresh_effective_context()
         GLib.timeout_add_seconds(2, self.check_context_files)

@@ -18,6 +18,7 @@ Panel {
     paired: false,
     connected: false,
     lastSynced: 0,
+    brightness: 50,
     message: "Watch service is not running"
   })
   property string actionError: ""
@@ -32,6 +33,8 @@ Panel {
   readonly property bool ready: status === "ready"
   readonly property bool recovering: owned && !ready && status !== "syncing" && status !== "paired"
   readonly property bool busy: status === "pairing" || status === "syncing" || command.running
+  readonly property bool brightnessAvailable: Number(state.protocol || 0) >= 3
+    && (Number(state.capabilities || 0) & 32) !== 0
   readonly property color foreground: bar ? bar.foreground : Color.foreground
   readonly property color dim: Qt.darker(foreground, 1.45)
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
@@ -324,6 +327,55 @@ Panel {
           foreground: root.foreground
           fontFamily: root.fontFamily
           onClicked: root.run(["sync"])
+        }
+
+        PanelSeparator {
+          visible: root.brightnessAvailable
+          Layout.fillWidth: true
+        }
+
+        PanelSectionHeader {
+          visible: root.brightnessAvailable
+          text: "DISPLAY"
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+        }
+
+        RowLayout {
+          visible: root.brightnessAvailable
+          Layout.fillWidth: true
+
+          Text {
+            text: "BRIGHTNESS"
+            color: root.foreground
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.body
+          }
+
+          Item { Layout.fillWidth: true }
+
+          Text {
+            text: Math.round(brightnessSlider.liveValue) + "%"
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+          }
+        }
+
+        PanelSlider {
+          id: brightnessSlider
+          visible: root.brightnessAvailable
+          Layout.fillWidth: true
+          bar: root.bar
+          minimum: 20
+          maximum: 100
+          step: 5
+          integer: true
+          value: Number(root.state.brightness || 50)
+          enabled: !root.busy
+          onReleased: function(value) {
+            root.run(["brightness", String(Math.round(value))])
+          }
         }
 
         Text {

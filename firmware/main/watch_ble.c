@@ -51,9 +51,9 @@ static void persist_profile(const void *profile,
     ESP_ERROR_CHECK(nvs_open("omarchy", NVS_READWRITE, &nvs));
     ESP_ERROR_CHECK(nvs_set_u8(nvs, "owned", 1));
     ESP_ERROR_CHECK(nvs_set_blob(nvs, "owner_id", profile_owner_id, 16));
-    ESP_ERROR_CHECK(nvs_set_blob(
-        nvs, version == 2 ? "profile_v2" : "profile_v1", profile, profile_size
-    ));
+    const char *profile_key = version == 3 ? "profile_v3" :
+                              version == 2 ? "profile_v2" : "profile_v1";
+    ESP_ERROR_CHECK(nvs_set_blob(nvs, profile_key, profile, profile_size));
     ESP_ERROR_CHECK(nvs_set_u32(nvs, "profile_rev", revision));
     ESP_ERROR_CHECK(nvs_commit(nvs));
     nvs_close(nvs);
@@ -115,11 +115,12 @@ static int gatt_access(uint16_t conn_handle, uint16_t attr_handle,
         ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
         const uint16_t packet_length = OS_MBUF_PKTLEN(ctxt->om);
         if (packet_length != sizeof(omarchy_profile_v1_t) &&
-            packet_length != sizeof(omarchy_profile_v2_t)) {
+            packet_length != sizeof(omarchy_profile_v2_t) &&
+            packet_length != sizeof(omarchy_profile_v3_t)) {
             return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
         }
 
-        omarchy_profile_v2_t packet = {0};
+        omarchy_profile_v3_t packet = {0};
         uint16_t copied = 0;
         if (ble_hs_mbuf_to_flat(ctxt->om, &packet, packet_length, &copied) != 0 ||
             copied != packet_length) {
@@ -128,8 +129,10 @@ static int gatt_access(uint16_t conn_handle, uint16_t attr_handle,
         const bool is_v1 = packet_length == sizeof(omarchy_profile_v1_t) &&
                            omarchy_profile_v1_is_valid((omarchy_profile_v1_t *)&packet);
         const bool is_v2 = packet_length == sizeof(omarchy_profile_v2_t) &&
-                           omarchy_profile_v2_is_valid(&packet);
-        if (!is_v1 && !is_v2) {
+                           omarchy_profile_v2_is_valid((omarchy_profile_v2_t *)&packet);
+        const bool is_v3 = packet_length == sizeof(omarchy_profile_v3_t) &&
+                           omarchy_profile_v3_is_valid(&packet);
+        if (!is_v1 && !is_v2 && !is_v3) {
             return BLE_ATT_ERR_UNLIKELY;
         }
         const omarchy_profile_v1_t *base = (const omarchy_profile_v1_t *)&packet;
@@ -148,8 +151,10 @@ static int gatt_access(uint16_t conn_handle, uint16_t attr_handle,
             ESP_LOGW(TAG, "Could not update RTC: %s", esp_err_to_name(rtc_err));
         }
         persist_profile(&packet, packet_length, base->version, base->owner_id, base->revision);
-        if (is_v2) {
-            watch_ui_apply_profile(&packet);
+        if (is_v3) {
+            watch_ui_apply_profile_v3(&packet);
+        } else if (is_v2) {
+            watch_ui_apply_profile_v2((omarchy_profile_v2_t *)&packet);
         } else {
             watch_ui_apply_time(base->unix_time, base->utc_offset_minutes, base->hour_cycle);
         }
@@ -299,7 +304,8 @@ esp_err_t watch_ble_start(uint32_t pairing_passkey, bool owned)
         .protocol_max = OMARCHY_PROTOCOL_VERSION,
         .flags = owned ? 1 : 0,
         .capabilities = OMARCHY_CAP_TIME_SYNC | OMARCHY_CAP_HOUR_CYCLE |
-                        OMARCHY_CAP_RTC | OMARCHY_CAP_THEME | OMARCHY_CAP_WEATHER,
+                        OMARCHY_CAP_RTC | OMARCHY_CAP_THEME | OMARCHY_CAP_WEATHER |
+                        OMARCHY_CAP_DISPLAY_BRIGHTNESS,
         .firmware_major = OMARCHY_FIRMWARE_VERSION_MAJOR,
         .firmware_minor = OMARCHY_FIRMWARE_VERSION_MINOR,
         .firmware_patch = OMARCHY_FIRMWARE_VERSION_PATCH,

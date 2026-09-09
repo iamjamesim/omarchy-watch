@@ -9,7 +9,7 @@ This is an independent community project, not an official Omarchy project.
 
 ![Plain 01 watch face](docs/images/plain-01.png)
 
-## v0.2 checkpoint
+## v0.3 checkpoint
 
 - Plain 01 watch face at the display's native 410 x 502 resolution
 - compact date/battery header, dominant clock, live weather, and
@@ -19,18 +19,22 @@ This is an independent community project, not an official Omarchy project.
 - authenticated Bluetooth LE pairing using the six-digit code on the watch
 - persistent watch and desktop identities; pairing is a one-time setup
 - automatic time, UTC offset, and 12/24-hour synchronization from Omarchy
-- automatic background/foreground palette synchronization from the resolved
-  Omarchy theme
+- automatic background, foreground, and accent synchronization from the
+  resolved Omarchy theme; the face matches the desktop bar surface while its
+  clock carries the theme's primary highlight
 - current conditions, daily high/low, units, and location from Omarchy's
   canonical weather setting, refreshed every 15 minutes and cached offline
 - board RTC restore at boot, with an honest unsynchronized state if its time
   cannot be trusted
-- Omarchy bar panel for discovery, pairing, connection status, and manual sync
-- 30% active brightness, a 15-second touch-wake display timeout, CPU frequency
-  scaling, automatic light sleep, and Bluetooth modem sleep
+- Omarchy bar panel for discovery, pairing, connection status, brightness, and
+  manual sync
+- 50% default active brightness, a 15-second touch-wake display timeout, CPU
+  frequency scaling, automatic light sleep, and Bluetooth modem sleep
+- five-second, low-battery-aware previews for prompt theme and brightness
+  changes; periodic weather and time updates stay dark
 
 The simulator keeps a deterministic San Francisco/Solitude fixture for pixel
-comparisons; firmware receives live values in the version 2 effective profile.
+comparisons; firmware receives live values in the version 3 effective profile.
 
 ## Product boundary
 
@@ -80,7 +84,7 @@ The command writes square and rounded PNGs under `simulator/output/`. See the
 [simulator guide](simulator/README.md) for host dependencies and the boundary
 between deterministic previews and physical-display validation.
 
-## Direction after v0.2
+## Direction after v0.3
 
 The next coherent slice is companion behavior: notifications, media controls,
 and explicit follow-or-override settings. Additional faces and seasonal
