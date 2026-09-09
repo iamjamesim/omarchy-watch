@@ -38,7 +38,9 @@ connection interval with a peripheral latency of 3, allowing its radio to skip
 idle events and normally check in about once per second. The first transaction
 on a new link verifies device identity; later updates use the already verified
 link directly. Link loss, Bluetooth restoration, and laptop resume all trigger
-bounded automatic reconnection. Pending profile work remains derived from the
+one bounded exponential reconnect path. BlueZ's connected and
+services-resolved properties drive synchronization directly, without a
+separate GATT polling timer. Pending profile work remains derived from the
 desired and acknowledged fingerprints throughout recovery.
 
 The bundled endpoint is Open-Meteo's non-commercial free API. Commercial
