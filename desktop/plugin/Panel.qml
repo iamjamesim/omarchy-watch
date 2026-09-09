@@ -26,14 +26,17 @@ Panel {
   readonly property string statePath: (Quickshell.env("XDG_STATE_HOME")
     || Quickshell.env("HOME") + "/.local/state") + "/omarchy-watch/status.json"
   readonly property string status: String(state.status || "stopped")
-  readonly property bool found: ["found", "pairing", "paired", "syncing", "ready", "error"].indexOf(status) >= 0
+  readonly property bool found: ["found", "pairing", "paired", "syncing", "ready", "error", "disconnected", "bluetooth-off"].indexOf(status) >= 0
+  readonly property bool owned: Boolean(state.paired || state.watchOwned)
+  readonly property bool needsPairing: !owned && ["found", "pairing", "error"].indexOf(status) >= 0
   readonly property bool ready: status === "ready"
+  readonly property bool recovering: owned && !ready && status !== "syncing" && status !== "paired"
   readonly property bool busy: status === "pairing" || status === "syncing" || command.running
   readonly property color foreground: bar ? bar.foreground : Color.foreground
   readonly property color dim: Qt.darker(foreground, 1.45)
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
 
-  visible: found
+  visible: found && (status !== "bluetooth-off" || owned)
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
@@ -126,7 +129,7 @@ Panel {
     owner: root
     bar: root.bar
     open: root.opened
-    focusTarget: codeField.visible ? codeField : syncButton
+    focusTarget: codeField.visible ? codeField : recoveryButton.visible ? recoveryButton : syncButton
     contentWidth: panel.fittedContentWidth(Style.space(320))
     contentHeight: panel.fittedContentHeight(content.implicitHeight)
 
@@ -167,7 +170,10 @@ Panel {
             text: root.status === "found" ? "READY TO PAIR"
               : root.status === "pairing" ? "PAIRING"
               : root.status === "syncing" ? "SYNCHRONIZING"
-              : root.status === "ready" ? "CONNECTED"
+              : root.status === "ready" ? "UP TO DATE"
+              : root.status === "bluetooth-off" ? "BLUETOOTH OFF"
+              : root.status === "disconnected" ? "DISCONNECTED"
+              : root.owned && root.status === "error" ? "DISCONNECTED"
               : root.status.toUpperCase()
             color: root.dim
             font.family: root.fontFamily
@@ -181,7 +187,7 @@ Panel {
       PanelSeparator { Layout.fillWidth: true }
 
       ColumnLayout {
-        visible: root.status === "found" || root.status === "error"
+        visible: root.needsPairing && root.status !== "pairing"
         Layout.fillWidth: true
         spacing: Style.space(8)
 
@@ -247,6 +253,37 @@ Panel {
       }
 
       ColumnLayout {
+        visible: root.recovering
+        Layout.fillWidth: true
+        spacing: Style.space(10)
+
+        Text {
+          Layout.fillWidth: true
+          textFormat: Text.PlainText
+          text: String(root.state.message || "Watch is temporarily unavailable")
+          color: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.body
+          horizontalAlignment: Text.AlignHCenter
+          wrapMode: Text.WordWrap
+        }
+
+        Button {
+          id: recoveryButton
+          visible: root.status !== "bluetooth-off"
+          Layout.fillWidth: true
+          text: root.busy ? "RECONNECTING" : "RECONNECT + SYNC"
+          bordered: true
+          focusable: true
+          enabled: !root.busy
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          onClicked: root.run(["sync"])
+        }
+
+      }
+
+      ColumnLayout {
         visible: root.ready
         Layout.fillWidth: true
         spacing: Style.space(8)
@@ -261,7 +298,7 @@ Panel {
           Layout.fillWidth: true
 
           Text {
-            text: "TIME + PREFERENCES"
+            text: "TIME + WEATHER + THEME"
             color: root.foreground
             font.family: root.fontFamily
             font.pixelSize: Style.font.body
@@ -288,10 +325,21 @@ Panel {
           fontFamily: root.fontFamily
           onClicked: root.run(["sync"])
         }
+
+        Text {
+          Layout.alignment: Qt.AlignHCenter
+          textFormat: Text.RichText
+          text: '<a href="https://open-meteo.com/">WEATHER DATA BY OPEN-METEO.COM</a>'
+          color: root.dim
+          linkColor: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          onLinkActivated: function(link) { Qt.openUrlExternally(link) }
+        }
       }
 
       Text {
-        visible: root.actionError !== "" || root.status === "error"
+        visible: root.actionError !== "" || (!root.owned && root.status === "error")
         Layout.fillWidth: true
         textFormat: Text.PlainText
         text: root.actionError !== "" ? root.actionError : String(root.state.message || "Pairing failed")

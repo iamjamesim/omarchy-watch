@@ -19,6 +19,7 @@ idf_component_register(
     PRIV_REQUIRES
         bt
         esp_driver_i2c
+        esp_pm
         nvs_flash
 )
 

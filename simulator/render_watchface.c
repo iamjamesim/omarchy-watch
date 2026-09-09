@@ -78,7 +78,7 @@ int main(int argc, char **argv)
     lv_display_set_flush_cb(display, flush_display);
 
     watch_face_layout_t layout;
-    watch_face_layout_create(lv_screen_active(), &layout);
+    watch_face_layout_create(lv_screen_active(), &layout, &WATCH_FACE_DEFAULT_THEME);
     watch_face_layout_set_time(&layout, "Tue 8 Sep", "05:59", "PM");
     watch_face_layout_set_battery(&layout, "󰂀", true); // U+F0080, battery-70
     lv_refr_now(display);

@@ -1,11 +1,15 @@
 #include "watch_ui.h"
 
 #include <stdio.h>
+#include <string.h>
 #include <time.h>
 #include <sys/time.h>
 
 #include "bsp/esp-bsp.h"
 #include "bsp/display.h"
+#include "driver/gpio.h"
+#include "esp_lvgl_port.h"
+#include "esp_sleep.h"
 #include "lvgl.h"
 #include "watch_face_layout.h"
 #include "watch_power.h"
@@ -18,24 +22,47 @@ enum {
     DISPLAY_WIDTH = 410,
     DISPLAY_HEIGHT = 502,
     SAFE_INLINE = 28,
+    ACTIVE_BRIGHTNESS_PERCENT = 30,
+    DISPLAY_TIMEOUT_MS = 15000,
+    WEATHER_MAX_AGE_SECONDS = 6 * 60 * 60,
 };
-
-static const lv_color_t COLOR_BACKGROUND = LV_COLOR_MAKE(0x10, 0x13, 0x15);
-static const lv_color_t COLOR_FOREGROUND = LV_COLOR_MAKE(0xCA, 0xCC, 0xCC);
 
 static watch_face_layout_t face_layout;
 static lv_timer_t *clock_timer;
 static lv_timer_t *battery_timer;
+static lv_timer_t *display_timer;
 static bool face_visible;
+static bool display_awake = true;
 static int16_t utc_offset_minutes;
 static uint8_t hour_cycle = 24;
+static watch_face_theme_t face_theme = {
+    .background = {0x10, 0x13, 0x15},
+    .foreground = {0xCA, 0xCC, 0xCC},
+};
+static bool weather_valid;
+static int64_t weather_updated_at;
+static int16_t weather_temperature;
+static int16_t weather_high;
+static int16_t weather_low;
+static uint8_t weather_code;
+static bool weather_night;
+static char weather_location[24] = "SAN FRANCISCO";
+
+static void arm_display_timeout(void);
+
+static lv_color_t foreground_color(void)
+{
+    return lv_color_make(
+        face_theme.foreground[0], face_theme.foreground[1], face_theme.foreground[2]
+    );
+}
 
 static lv_obj_t *make_label(lv_obj_t *parent, const char *text, const lv_font_t *font)
 {
     lv_obj_t *label = lv_label_create(parent);
     lv_label_set_text(label, text);
     lv_obj_set_style_text_font(label, font, 0);
-    lv_obj_set_style_text_color(label, COLOR_FOREGROUND, 0);
+    lv_obj_set_style_text_color(label, foreground_color(), 0);
     lv_obj_set_style_text_opa(label, LV_OPA_COVER, 0);
     lv_obj_set_style_pad_all(label, 0, 0);
     return label;
@@ -47,7 +74,11 @@ static lv_obj_t *reset_screen(void)
     lv_obj_clean(screen);
     lv_obj_remove_style_all(screen);
     lv_obj_set_size(screen, DISPLAY_WIDTH, DISPLAY_HEIGHT);
-    lv_obj_set_style_bg_color(screen, COLOR_BACKGROUND, 0);
+    lv_obj_set_style_bg_color(
+        screen,
+        lv_color_make(face_theme.background[0], face_theme.background[1], face_theme.background[2]),
+        0
+    );
     lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
     lv_obj_clear_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -60,13 +91,16 @@ static lv_obj_t *reset_screen(void)
         lv_timer_delete(battery_timer);
         battery_timer = NULL;
     }
+    if (display_awake) {
+        arm_display_timeout();
+    }
     return screen;
 }
 
 static void update_clock(lv_timer_t *timer)
 {
     (void)timer;
-    if (!face_visible) {
+    if (!face_visible || !display_awake) {
         return;
     }
 
@@ -104,7 +138,7 @@ static void update_clock(lv_timer_t *timer)
 static void update_battery(lv_timer_t *timer)
 {
     (void)timer;
-    if (!face_visible) {
+    if (!face_visible || !display_awake) {
         return;
     }
 
@@ -129,10 +163,137 @@ static void update_battery(lv_timer_t *timer)
     watch_face_layout_set_battery(&face_layout, glyph, charging);
 }
 
+static const char *weather_icon_for_code(uint8_t code, bool night)
+{
+    if (code == 0) return night ? "" : "";
+    if (code <= 2) return night ? "" : "";
+    if (code == 3) return "";
+    if (code == 45 || code == 48) return night ? "" : "";
+    if (code >= 51 && code <= 61) return night ? "" : "";
+    if ((code >= 63 && code <= 67) || (code >= 80 && code <= 82)) return "";
+    if ((code >= 71 && code <= 77) || code == 85 || code == 86) return "";
+    if (code >= 95) return "";
+    return "";
+}
+
+static const char *weather_condition_for_code(uint8_t code)
+{
+    if (code == 0) return "CLEAR";
+    if (code <= 2) return "PARTLY\nCLOUDY";
+    if (code == 3) return "OVERCAST";
+    if (code == 45 || code == 48) return "FOG";
+    if (code >= 51 && code <= 57) return "DRIZZLE";
+    if ((code >= 61 && code <= 67)) return "RAIN";
+    if ((code >= 71 && code <= 77) || code == 85 || code == 86) return "SNOW";
+    if (code >= 80 && code <= 82) return "SHOWERS";
+    if (code >= 95) return "THUNDER\nSTORM";
+    return "WEATHER\nUNKNOWN";
+}
+
+static void update_weather(void)
+{
+    char temperature[12];
+    char range[24];
+    char location[32];
+    const int64_t weather_age = (int64_t)time(NULL) - weather_updated_at;
+    const bool weather_is_fresh = weather_valid && weather_age >= 0 &&
+                                  weather_age <= WEATHER_MAX_AGE_SECONDS;
+    if (weather_is_fresh) {
+        snprintf(temperature, sizeof(temperature), "%d°", weather_temperature);
+        snprintf(range, sizeof(range), "H %d°  L %d°", weather_high, weather_low);
+        snprintf(location, sizeof(location), " %s", weather_location);
+        watch_face_layout_set_weather(
+            &face_layout,
+            weather_icon_for_code(weather_code, weather_night),
+            temperature,
+            weather_condition_for_code(weather_code),
+            range,
+            location
+        );
+    } else {
+        watch_face_layout_set_weather(
+            &face_layout, "", "--°", "WEATHER\nUNAVAILABLE",
+            "H --°  L --°", " LOCATION NOT SET"
+        );
+    }
+}
+
+static void display_sleep(lv_timer_t *timer)
+{
+    (void)timer;
+    display_timer = NULL;
+    if (!display_awake) {
+        return;
+    }
+    bsp_display_brightness_set(0);
+    display_awake = false;
+    if (clock_timer != NULL) lv_timer_pause(clock_timer);
+    if (battery_timer != NULL) lv_timer_pause(battery_timer);
+    lvgl_port_stop();
+}
+
+static void arm_display_timeout(void)
+{
+    if (!display_awake) {
+        return;
+    }
+    if (display_timer != NULL) {
+        lv_timer_delete(display_timer);
+    }
+    display_timer = lv_timer_create(display_sleep, DISPLAY_TIMEOUT_MS, NULL);
+    lv_timer_set_repeat_count(display_timer, 1);
+}
+
+static void on_touch(lv_event_t *event)
+{
+    (void)event;
+    if (!display_awake) {
+        lvgl_port_resume();
+        display_awake = true;
+        bsp_display_brightness_set(ACTIVE_BRIGHTNESS_PERCENT);
+        if (clock_timer != NULL) {
+            lv_timer_resume(clock_timer);
+            update_clock(NULL);
+        }
+        if (battery_timer != NULL) {
+            lv_timer_resume(battery_timer);
+            update_battery(NULL);
+        }
+        update_weather();
+    }
+    arm_display_timeout();
+}
+
 esp_err_t watch_ui_start(void)
 {
-    bsp_display_start();
-    return bsp_display_backlight_on();
+    bsp_display_cfg_t cfg = {
+        .lvgl_port_cfg = ESP_LVGL_PORT_INIT_CONFIG(),
+        .buffer_size = BSP_LCD_DRAW_BUFF_SIZE,
+        .double_buffer = BSP_LCD_DRAW_BUFF_DOUBLE,
+        .flags = {
+            .buff_dma = false,
+            .buff_spiram = true,
+        },
+    };
+    cfg.lvgl_port_cfg.timer_period_ms = 20;
+    cfg.lvgl_port_cfg.task_max_sleep_ms = 1000;
+    if (bsp_display_start_with_config(&cfg) == NULL) {
+        return ESP_FAIL;
+    }
+
+    lv_indev_t *input = bsp_display_get_input_dev();
+    if (input != NULL) {
+        lv_indev_add_event_cb(input, on_touch, LV_EVENT_PRESSED, NULL);
+    }
+    gpio_wakeup_enable(BSP_LCD_TOUCH_INT, GPIO_INTR_LOW_LEVEL);
+    esp_sleep_enable_gpio_wakeup();
+    esp_err_t err = bsp_display_brightness_set(ACTIVE_BRIGHTNESS_PERCENT);
+    if (err == ESP_OK) {
+        bsp_display_lock(0);
+        arm_display_timeout();
+        bsp_display_unlock();
+    }
+    return err;
 }
 
 void watch_ui_show_pairing(uint32_t passkey)
@@ -183,11 +344,12 @@ void watch_ui_show_face(void)
 {
     bsp_display_lock(0);
     lv_obj_t *screen = reset_screen();
-    watch_face_layout_create(screen, &face_layout);
+    watch_face_layout_create(screen, &face_layout, &face_theme);
     face_visible = true;
 
     update_clock(NULL);
     update_battery(NULL);
+    update_weather();
     clock_timer = lv_timer_create(update_clock, 1000, NULL);
     battery_timer = lv_timer_create(update_battery, 15000, NULL);
     bsp_display_unlock();
@@ -214,4 +376,23 @@ void watch_ui_apply_time(int64_t unix_time, int16_t offset_minutes, uint8_t cycl
     utc_offset_minutes = offset_minutes;
     hour_cycle = cycle == 12 ? 12 : 24;
     watch_ui_show_face();
+}
+
+void watch_ui_apply_profile(const omarchy_profile_v2_t *profile)
+{
+    if (profile == NULL) {
+        return;
+    }
+    memcpy(face_theme.background, profile->background_rgb, sizeof(face_theme.background));
+    memcpy(face_theme.foreground, profile->foreground_rgb, sizeof(face_theme.foreground));
+    weather_valid = (profile->flags & OMARCHY_PROFILE_WEATHER_VALID) != 0;
+    weather_updated_at = profile->weather_updated_at;
+    weather_temperature = profile->temperature;
+    weather_high = profile->high_temperature;
+    weather_low = profile->low_temperature;
+    weather_code = profile->weather_code;
+    weather_night = (profile->flags & OMARCHY_PROFILE_WEATHER_NIGHT) != 0;
+    memcpy(weather_location, profile->location, sizeof(weather_location));
+    weather_location[sizeof(weather_location) - 1] = '\0';
+    watch_ui_apply_time(profile->unix_time, profile->utc_offset_minutes, profile->hour_cycle);
 }

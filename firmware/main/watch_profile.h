@@ -2,18 +2,25 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <string.h>
 
 enum {
-    OMARCHY_PROTOCOL_VERSION = 1,
+    OMARCHY_PROTOCOL_VERSION_MIN = 1,
+    OMARCHY_PROTOCOL_VERSION = 2,
     OMARCHY_PROFILE_KIND = 1,
     OMARCHY_FIRMWARE_VERSION_MAJOR = 0,
-    OMARCHY_FIRMWARE_VERSION_MINOR = 1,
+    OMARCHY_FIRMWARE_VERSION_MINOR = 2,
     OMARCHY_FIRMWARE_VERSION_PATCH = 0,
     OMARCHY_MIN_UTC_OFFSET_MINUTES = -12 * 60,
     OMARCHY_MAX_UTC_OFFSET_MINUTES = 14 * 60,
     OMARCHY_CAP_TIME_SYNC = 1 << 0,
     OMARCHY_CAP_HOUR_CYCLE = 1 << 1,
     OMARCHY_CAP_RTC = 1 << 2,
+    OMARCHY_CAP_THEME = 1 << 3,
+    OMARCHY_CAP_WEATHER = 1 << 4,
+    OMARCHY_PROFILE_WEATHER_VALID = 1 << 0,
+    OMARCHY_PROFILE_WEATHER_FAHRENHEIT = 1 << 1,
+    OMARCHY_PROFILE_WEATHER_NIGHT = 1 << 2,
 };
 
 typedef struct __attribute__((packed)) {
@@ -30,6 +37,26 @@ typedef struct __attribute__((packed)) {
 
 typedef struct __attribute__((packed)) {
     uint8_t magic[2];
+    uint8_t version;
+    uint8_t kind;
+    uint32_t revision;
+    int64_t unix_time;
+    int16_t utc_offset_minutes;
+    uint8_t hour_cycle;
+    uint8_t flags;
+    uint8_t owner_id[16];
+    uint8_t background_rgb[3];
+    uint8_t foreground_rgb[3];
+    int64_t weather_updated_at;
+    int16_t temperature;
+    int16_t high_temperature;
+    int16_t low_temperature;
+    uint8_t weather_code;
+    char location[24];
+} omarchy_profile_v2_t;
+
+typedef struct __attribute__((packed)) {
+    uint8_t magic[2];
     uint8_t protocol_min;
     uint8_t protocol_max;
     uint8_t flags;
@@ -43,6 +70,7 @@ typedef struct __attribute__((packed)) {
 } omarchy_identity_v1_t;
 
 _Static_assert(sizeof(omarchy_profile_v1_t) == 36, "profile wire size changed");
+_Static_assert(sizeof(omarchy_profile_v2_t) == 81, "v2 profile wire size changed");
 _Static_assert(sizeof(omarchy_identity_v1_t) == 32, "identity wire size changed");
 
 static inline bool omarchy_profile_v1_is_valid(const omarchy_profile_v1_t *profile)
@@ -52,11 +80,36 @@ static inline bool omarchy_profile_v1_is_valid(const omarchy_profile_v1_t *profi
     const int64_t latest_supported_time = INT64_C(3155759999);   /* 2069-12-31 */
 
     return profile != NULL && profile->magic[0] == 'O' && profile->magic[1] == 'W' &&
-           profile->version == OMARCHY_PROTOCOL_VERSION &&
+           profile->version == 1 &&
            profile->kind == OMARCHY_PROFILE_KIND &&
            profile->unix_time >= earliest_supported_time &&
            profile->unix_time <= latest_supported_time &&
            profile->utc_offset_minutes >= OMARCHY_MIN_UTC_OFFSET_MINUTES &&
            profile->utc_offset_minutes <= OMARCHY_MAX_UTC_OFFSET_MINUTES &&
            (profile->hour_cycle == 12 || profile->hour_cycle == 24);
+}
+
+static inline bool omarchy_profile_v2_is_valid(const omarchy_profile_v2_t *profile)
+{
+    const int64_t earliest_supported_time = INT64_C(1704067200);  /* 2024-01-01 */
+    const int64_t latest_supported_time = INT64_C(3155759999);   /* 2069-12-31 */
+    const bool weather_valid = profile != NULL &&
+                               (profile->flags & OMARCHY_PROFILE_WEATHER_VALID) != 0;
+
+    return profile != NULL && profile->magic[0] == 'O' && profile->magic[1] == 'W' &&
+           profile->version == OMARCHY_PROTOCOL_VERSION &&
+           profile->kind == OMARCHY_PROFILE_KIND &&
+           profile->unix_time >= earliest_supported_time &&
+           profile->unix_time <= latest_supported_time &&
+           profile->utc_offset_minutes >= OMARCHY_MIN_UTC_OFFSET_MINUTES &&
+           profile->utc_offset_minutes <= OMARCHY_MAX_UTC_OFFSET_MINUTES &&
+           (profile->hour_cycle == 12 || profile->hour_cycle == 24) &&
+           (!weather_valid ||
+            (profile->weather_updated_at >= earliest_supported_time &&
+             profile->weather_updated_at <= latest_supported_time &&
+             profile->temperature >= -99 && profile->temperature <= 199 &&
+             profile->high_temperature >= -99 && profile->high_temperature <= 199 &&
+             profile->low_temperature >= -99 && profile->low_temperature <= 199 &&
+             profile->weather_code <= 99 &&
+             memchr(profile->location, '\0', sizeof(profile->location)) != NULL));
 }

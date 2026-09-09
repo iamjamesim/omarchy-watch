@@ -16,15 +16,19 @@ enum {
     WEATHER_RULE_Y = 389,
 };
 
-static const lv_color_t COLOR_BACKGROUND = LV_COLOR_MAKE(0x10, 0x13, 0x15);
-static const lv_color_t COLOR_FOREGROUND = LV_COLOR_MAKE(0xCA, 0xCC, 0xCC);
+const watch_face_theme_t WATCH_FACE_DEFAULT_THEME = {
+    .background = {0x10, 0x13, 0x15},
+    .foreground = {0xCA, 0xCC, 0xCC},
+};
+
+static lv_color_t foreground_color;
 
 static lv_obj_t *make_label(lv_obj_t *parent, const char *text, const lv_font_t *font)
 {
     lv_obj_t *label = lv_label_create(parent);
     lv_label_set_text(label, text);
     lv_obj_set_style_text_font(label, font, 0);
-    lv_obj_set_style_text_color(label, COLOR_FOREGROUND, 0);
+    lv_obj_set_style_text_color(label, foreground_color, 0);
     lv_obj_set_style_text_opa(label, LV_OPA_COVER, 0);
     lv_obj_set_style_pad_all(label, 0, 0);
     return label;
@@ -36,19 +40,30 @@ static lv_obj_t *make_rule(lv_obj_t *parent, int x, int y, int width, lv_opa_t o
     lv_obj_remove_style_all(rule);
     lv_obj_set_pos(rule, x, y);
     lv_obj_set_size(rule, width, 1);
-    lv_obj_set_style_bg_color(rule, COLOR_FOREGROUND, 0);
+    lv_obj_set_style_bg_color(rule, foreground_color, 0);
     lv_obj_set_style_bg_opa(rule, opacity, 0);
     return rule;
 }
 
-void watch_face_layout_create(lv_obj_t *screen, watch_face_layout_t *layout)
+void watch_face_layout_create(lv_obj_t *screen,
+                              watch_face_layout_t *layout,
+                              const watch_face_theme_t *theme)
 {
     memset(layout, 0, sizeof(*layout));
+    if (theme == NULL) {
+        theme = &WATCH_FACE_DEFAULT_THEME;
+    }
+    const lv_color_t background_color = lv_color_make(
+        theme->background[0], theme->background[1], theme->background[2]
+    );
+    foreground_color = lv_color_make(
+        theme->foreground[0], theme->foreground[1], theme->foreground[2]
+    );
 
     lv_obj_clean(screen);
     lv_obj_remove_style_all(screen);
     lv_obj_set_size(screen, WATCH_FACE_WIDTH, WATCH_FACE_HEIGHT);
-    lv_obj_set_style_bg_color(screen, COLOR_BACKGROUND, 0);
+    lv_obj_set_style_bg_color(screen, background_color, 0);
     lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
     lv_obj_clear_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -87,31 +102,45 @@ void watch_face_layout_create(lv_obj_t *screen, watch_face_layout_t *layout)
               WATCH_FACE_WIDTH - (SAFE_INLINE * 2), LV_OPA_50);
 
     // U+E302 is Nerd Fonts' partly-cloudy Weather Icons glyph.
-    lv_obj_t *weather_icon = make_label(screen, "", &jetbrains_mono_48_icons);
-    lv_label_set_long_mode(weather_icon, LV_LABEL_LONG_CLIP);
-    lv_obj_set_size(weather_icon, 64, 64);
-    lv_obj_set_pos(weather_icon, 65, 251);
+    layout->weather_icon = make_label(screen, "", &jetbrains_mono_48_icons);
+    lv_label_set_long_mode(layout->weather_icon, LV_LABEL_LONG_CLIP);
+    lv_obj_set_size(layout->weather_icon, 64, 64);
+    lv_obj_set_pos(layout->weather_icon, 65, 251);
 
-    lv_obj_t *temperature = make_label(screen, "68°", &jetbrains_mono_42);
-    lv_obj_set_width(temperature, 120);
-    lv_obj_set_style_text_align(temperature, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_pos(temperature, 38, 312);
+    layout->temperature = make_label(screen, "68°", &jetbrains_mono_42);
+    lv_obj_set_width(layout->temperature, 120);
+    lv_obj_set_style_text_align(layout->temperature, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_pos(layout->temperature, 38, 312);
 
-    lv_obj_t *condition = make_label(screen, "PARTLY\nCLOUDY", &jetbrains_mono_27);
-    lv_obj_set_style_text_letter_space(condition, 1, 0);
-    lv_obj_set_style_text_line_space(condition, 2, 0);
-    lv_obj_set_pos(condition, 202, 255);
+    layout->condition = make_label(screen, "PARTLY\nCLOUDY", &jetbrains_mono_27);
+    lv_obj_set_style_text_letter_space(layout->condition, 1, 0);
+    lv_obj_set_style_text_line_space(layout->condition, 2, 0);
+    lv_obj_set_pos(layout->condition, 202, 255);
 
-    lv_obj_t *range = make_label(screen, "H 72°  L 61°", &jetbrains_mono_22);
-    lv_obj_set_pos(range, 194, 328);
+    layout->range = make_label(screen, "H 72°  L 61°", &jetbrains_mono_22);
+    lv_obj_set_pos(layout->range, 194, 328);
 
     // U+F041 is Nerd Fonts' Font Awesome location marker.
-    lv_obj_t *location = make_label(screen, " SAN FRANCISCO", &jetbrains_mono_27);
-    lv_obj_set_width(location, 330);
-    lv_obj_set_style_text_align(location, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_text_letter_space(location, 1, 0);
-    lv_label_set_long_mode(location, LV_LABEL_LONG_DOT);
-    lv_obj_set_pos(location, 40, 432);
+    layout->location = make_label(screen, " SAN FRANCISCO", &jetbrains_mono_27);
+    lv_obj_set_width(layout->location, 330);
+    lv_obj_set_style_text_align(layout->location, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_letter_space(layout->location, 1, 0);
+    lv_label_set_long_mode(layout->location, LV_LABEL_LONG_DOT);
+    lv_obj_set_pos(layout->location, 40, 432);
+}
+
+void watch_face_layout_set_weather(watch_face_layout_t *layout,
+                                   const char *icon,
+                                   const char *temperature,
+                                   const char *condition,
+                                   const char *range,
+                                   const char *location)
+{
+    lv_label_set_text(layout->weather_icon, icon);
+    lv_label_set_text(layout->temperature, temperature);
+    lv_label_set_text(layout->condition, condition);
+    lv_label_set_text(layout->range, range);
+    lv_label_set_text(layout->location, location);
 }
 
 void watch_face_layout_set_time(watch_face_layout_t *layout,

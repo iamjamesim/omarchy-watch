@@ -55,7 +55,7 @@ npx "${common[@]}" --size 42 \
   --output "$output_dir/jetbrains_mono_42.c"
 
 npx "${common[@]}" --size 48 \
-  --range 0xE302 \
+  --range 0xE302,0xE308,0xE30D,0xE313,0xE318,0xE31A,0xE31D,0xE32B,0xE32E,0xE333,0xE33D,0xE346 \
   --output "$output_dir/jetbrains_mono_48_icons.c"
 
 npx "${common[@]}" --size 114 \

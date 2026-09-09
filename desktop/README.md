@@ -14,6 +14,16 @@ The desktop side has two parts separated by a small file/command boundary:
 - BlueZ and a Bluetooth LE adapter
 - Python 3 with `dbus-python` and PyGObject/GLib
 - a running user systemd session
+- outbound HTTPS access for forecast refreshes
+
+The bridge reads the resolved palette from Omarchy's current theme state and
+reuses Omarchy's canonical weather location. It fetches Open-Meteo when that
+location has coordinates, refreshes every 15 minutes, and retains the last
+successful result for brief offline periods. The request includes the
+configured latitude and longitude.
+
+The bundled endpoint is Open-Meteo's non-commercial free API. Commercial
+derivatives must use an appropriate Open-Meteo plan or replace the provider.
 
 ## Install a development checkout
 
@@ -49,3 +59,5 @@ Persistent host identity lives at
 `$XDG_CONFIG_HOME/omarchy-watch/identity.json` (falling back to
 `~/.config`). Runtime socket and status files follow the corresponding XDG
 runtime and state directories.
+
+The forecast cache follows `XDG_CACHE_HOME` (falling back to `~/.cache`).

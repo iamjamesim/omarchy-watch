@@ -35,24 +35,32 @@ static const ble_uuid128_t identity_uuid = BLE_UUID128_INIT(
 static uint8_t own_addr_type;
 static uint32_t passkey;
 static uint32_t profile_revision;
+static bool watch_owned;
 static omarchy_identity_v1_t identity;
 static uint8_t owner_id[16];
 
 void ble_store_config_init(void);
 
-static void persist_profile(const omarchy_profile_v1_t *profile)
+static void persist_profile(const void *profile,
+                            size_t profile_size,
+                            uint8_t version,
+                            const uint8_t profile_owner_id[16],
+                            uint32_t revision)
 {
     nvs_handle_t nvs;
     ESP_ERROR_CHECK(nvs_open("omarchy", NVS_READWRITE, &nvs));
     ESP_ERROR_CHECK(nvs_set_u8(nvs, "owned", 1));
-    ESP_ERROR_CHECK(nvs_set_blob(nvs, "owner_id", profile->owner_id, sizeof(profile->owner_id)));
-    ESP_ERROR_CHECK(nvs_set_blob(nvs, "profile_v1", profile, sizeof(*profile)));
-    ESP_ERROR_CHECK(nvs_set_u32(nvs, "profile_rev", profile->revision));
+    ESP_ERROR_CHECK(nvs_set_blob(nvs, "owner_id", profile_owner_id, 16));
+    ESP_ERROR_CHECK(nvs_set_blob(
+        nvs, version == 2 ? "profile_v2" : "profile_v1", profile, profile_size
+    ));
+    ESP_ERROR_CHECK(nvs_set_u32(nvs, "profile_rev", revision));
     ESP_ERROR_CHECK(nvs_commit(nvs));
     nvs_close(nvs);
-    memcpy(owner_id, profile->owner_id, sizeof(owner_id));
-    profile_revision = profile->revision;
+    memcpy(owner_id, profile_owner_id, sizeof(owner_id));
+    profile_revision = revision;
     identity.flags |= 1;
+    watch_owned = true;
 }
 
 static esp_err_t load_owner_state(uint8_t loaded_owner_id[16], uint32_t *loaded_revision)
@@ -105,36 +113,48 @@ static int gatt_access(uint16_t conn_handle, uint16_t attr_handle,
 
     if (ble_uuid_cmp(requested, &control_uuid.u) == 0 &&
         ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
-        if (OS_MBUF_PKTLEN(ctxt->om) != sizeof(omarchy_profile_v1_t)) {
+        const uint16_t packet_length = OS_MBUF_PKTLEN(ctxt->om);
+        if (packet_length != sizeof(omarchy_profile_v1_t) &&
+            packet_length != sizeof(omarchy_profile_v2_t)) {
             return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
         }
 
-        omarchy_profile_v1_t profile;
+        omarchy_profile_v2_t packet = {0};
         uint16_t copied = 0;
-        if (ble_hs_mbuf_to_flat(ctxt->om, &profile, sizeof(profile), &copied) != 0 ||
-            copied != sizeof(profile)) {
+        if (ble_hs_mbuf_to_flat(ctxt->om, &packet, packet_length, &copied) != 0 ||
+            copied != packet_length) {
             return BLE_ATT_ERR_UNLIKELY;
         }
-        if (!omarchy_profile_v1_is_valid(&profile)) {
+        const bool is_v1 = packet_length == sizeof(omarchy_profile_v1_t) &&
+                           omarchy_profile_v1_is_valid((omarchy_profile_v1_t *)&packet);
+        const bool is_v2 = packet_length == sizeof(omarchy_profile_v2_t) &&
+                           omarchy_profile_v2_is_valid(&packet);
+        if (!is_v1 && !is_v2) {
             return BLE_ATT_ERR_UNLIKELY;
         }
+        const omarchy_profile_v1_t *base = (const omarchy_profile_v1_t *)&packet;
         if ((identity.flags & 1) != 0 &&
-            memcmp(profile.owner_id, owner_id, sizeof(owner_id)) != 0) {
+            memcmp(base->owner_id, owner_id, sizeof(owner_id)) != 0) {
             ESP_LOGW(TAG, "Rejected profile from a different desktop owner");
             return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
         }
-        if ((identity.flags & 1) != 0 && profile.revision < profile_revision) {
-            ESP_LOGW(TAG, "Rejected stale profile revision %lu", (unsigned long)profile.revision);
+        if ((identity.flags & 1) != 0 && base->revision < profile_revision) {
+            ESP_LOGW(TAG, "Rejected stale profile revision %lu", (unsigned long)base->revision);
             return BLE_ATT_ERR_WRITE_NOT_PERMITTED;
         }
 
-        esp_err_t rtc_err = watch_rtc_set_time(profile.unix_time);
+        esp_err_t rtc_err = watch_rtc_set_time(base->unix_time);
         if (rtc_err != ESP_OK) {
             ESP_LOGW(TAG, "Could not update RTC: %s", esp_err_to_name(rtc_err));
         }
-        persist_profile(&profile);
-        watch_ui_apply_time(profile.unix_time, profile.utc_offset_minutes, profile.hour_cycle);
-        ESP_LOGI(TAG, "Applied profile revision %lu", (unsigned long)profile.revision);
+        persist_profile(&packet, packet_length, base->version, base->owner_id, base->revision);
+        if (is_v2) {
+            watch_ui_apply_profile(&packet);
+        } else {
+            watch_ui_apply_time(base->unix_time, base->utc_offset_minutes, base->hour_cycle);
+        }
+        ESP_LOGI(TAG, "Applied v%u profile revision %lu",
+                 base->version, (unsigned long)base->revision);
         return 0;
     }
 
@@ -244,6 +264,8 @@ static void advertise(void)
     struct ble_gap_adv_params params = {
         .conn_mode = BLE_GAP_CONN_MODE_UND,
         .disc_mode = BLE_GAP_DISC_MODE_GEN,
+        .itvl_min = watch_owned ? 1600 : 160,
+        .itvl_max = watch_owned ? 1920 : 240,
     };
     rc = ble_gap_adv_start(own_addr_type, NULL, BLE_HS_FOREVER, &params, gap_event, NULL);
     if (rc != 0 && rc != BLE_HS_EALREADY) {
@@ -269,13 +291,15 @@ static void host_task(void *param)
 
 esp_err_t watch_ble_start(uint32_t pairing_passkey, bool owned)
 {
+    watch_owned = owned;
     passkey = pairing_passkey;
     identity = (omarchy_identity_v1_t) {
         .magic = {'O', 'W'},
-        .protocol_min = OMARCHY_PROTOCOL_VERSION,
+        .protocol_min = OMARCHY_PROTOCOL_VERSION_MIN,
         .protocol_max = OMARCHY_PROTOCOL_VERSION,
         .flags = owned ? 1 : 0,
-        .capabilities = OMARCHY_CAP_TIME_SYNC | OMARCHY_CAP_HOUR_CYCLE | OMARCHY_CAP_RTC,
+        .capabilities = OMARCHY_CAP_TIME_SYNC | OMARCHY_CAP_HOUR_CYCLE |
+                        OMARCHY_CAP_RTC | OMARCHY_CAP_THEME | OMARCHY_CAP_WEATHER,
         .firmware_major = OMARCHY_FIRMWARE_VERSION_MAJOR,
         .firmware_minor = OMARCHY_FIRMWARE_VERSION_MINOR,
         .firmware_patch = OMARCHY_FIRMWARE_VERSION_PATCH,

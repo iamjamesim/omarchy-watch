@@ -6,6 +6,16 @@ board's PCF85063A real-time clock to restore trusted time after a restart. It
 also reads battery level and charging state directly from the AXP2101 power
 manager.
 
+The display runs at 30% brightness and sleeps after 15 seconds; touching it
+wakes it and restarts the timeout. Dynamic CPU frequency scaling, tickless
+idle, automatic light sleep, Bluetooth modem sleep, and slower owned-device
+advertising reduce the idle load. The cached v2 profile restores the last
+theme and forecast without waiting for Bluetooth.
+
+While USB power is present, firmware holds a no-light-sleep lock so the native
+USB serial/JTAG interface remains reliable for flashing and monitoring. The
+lock is released when the AXP2101 reports that external power has gone away.
+
 The RTC is powered from the board battery through its power-management circuit.
 A normal reboot therefore keeps time. A complete battery loss can set the RTC's
 oscillator-stop flag; firmware then shows `TIME NOT SET` instead of displaying a
@@ -59,6 +69,7 @@ BlueZ before pairing it again.
 | owned | valid | watch face immediately | background sync refreshes it |
 | owned | invalid/unavailable | `TIME NOT SET` | bonded desktop reconnects and syncs |
 
-The RTC stores UTC. The cached profile supplies the display offset and hour
-cycle. In v0.1 the offset is refreshed whenever the desktop syncs; automatic
-seasonal timezone transitions while fully offline are future profile work.
+The RTC stores UTC. The cached profile supplies the display offset, hour cycle,
+palette, and forecast. The offset is refreshed whenever the desktop syncs;
+automatic seasonal timezone transitions while fully offline are future profile
+work.
