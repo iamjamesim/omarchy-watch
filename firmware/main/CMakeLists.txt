@@ -22,6 +22,7 @@ idf_component_register(
     PRIV_REQUIRES
         bt
         esp_driver_i2c
+        espressif__esp_lcd_touch
         esp_pm
         nvs_flash
 )

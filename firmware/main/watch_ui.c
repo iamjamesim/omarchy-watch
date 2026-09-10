@@ -7,6 +7,7 @@
 
 #include "bsp/esp-bsp.h"
 #include "bsp/display.h"
+#include "bsp/touch.h"
 #include "driver/gpio.h"
 #include "esp_lvgl_port.h"
 #include "esp_sleep.h"
@@ -31,6 +32,7 @@ enum {
     DISPLAY_PREVIEW_MIN_BATTERY_PERCENT = 15,
     BATTERY_PERCENTAGE_TIMEOUT_MS = 3000,
     WEATHER_MAX_AGE_SECONDS = 6 * 60 * 60,
+    DISPLAY_BUFFER_HEIGHT = 100,
 };
 
 static watch_face_layout_t face_layout;
@@ -60,8 +62,84 @@ static int16_t weather_low;
 static uint8_t weather_code;
 static bool weather_night;
 static char weather_location[24] = "SAN FRANCISCO";
+static lv_indev_t *display_input;
 
 static void arm_display_timeout(uint32_t timeout_ms);
+
+static void round_display_area(lv_area_t *area)
+{
+    area->x1 &= ~1;
+    area->y1 &= ~1;
+    area->x2 |= 1;
+    area->y2 |= 1;
+}
+
+static lv_display_t *start_display(const lvgl_port_cfg_t *port_cfg)
+{
+    if (lvgl_port_init(port_cfg) != ESP_OK) {
+        return NULL;
+    }
+
+    const bsp_display_config_t panel_cfg = {
+        .max_transfer_sz = DISPLAY_WIDTH * DISPLAY_HEIGHT * BSP_LCD_BITS_PER_PIXEL / 8,
+    };
+    esp_lcd_panel_handle_t panel = NULL;
+    esp_lcd_panel_io_handle_t io = NULL;
+    if (bsp_display_new(&panel_cfg, &panel, &io) != ESP_OK ||
+        bsp_display_brightness_set(0) != ESP_OK) {
+        return NULL;
+    }
+
+    const lvgl_port_display_cfg_t display_cfg = {
+        .io_handle = io,
+        .panel_handle = panel,
+        .buffer_size = DISPLAY_WIDTH * DISPLAY_BUFFER_HEIGHT,
+        .monochrome = false,
+        .hres = DISPLAY_WIDTH,
+        .vres = DISPLAY_HEIGHT,
+        .color_format = LV_COLOR_FORMAT_RGB565,
+        .rounder_cb = round_display_area,
+        .rotation = {
+            .swap_xy = false,
+            .mirror_x = false,
+            .mirror_y = false,
+        },
+        .flags = {
+            .sw_rotate = true,
+            .buff_dma = false,
+            .buff_spiram = false,
+            .swap_bytes = true,
+        },
+    };
+    lv_display_t *display = lvgl_port_add_disp(&display_cfg);
+    if (display == NULL) {
+        return NULL;
+    }
+
+    esp_lcd_touch_handle_t touch = NULL;
+    if (bsp_touch_new(NULL, &touch) != ESP_OK) {
+        return NULL;
+    }
+    const lvgl_port_touch_cfg_t touch_cfg = {
+        .disp = display,
+        .handle = touch,
+    };
+    display_input = lvgl_port_add_touch(&touch_cfg);
+    return display_input == NULL ? NULL : display;
+}
+
+static void render_full_screen_locked(void)
+{
+    lv_obj_invalidate(lv_screen_active());
+    lv_refr_now(lv_display_get_default());
+}
+
+static void present_screen_locked(void)
+{
+    render_full_screen_locked();
+    bsp_display_brightness_set(active_brightness_percent);
+    arm_display_timeout(DISPLAY_TIMEOUT_MS);
+}
 
 static void set_agent_y(void *object, int32_t y)
 {
@@ -372,6 +450,7 @@ static void wake_display_locked(uint32_t timeout_ms)
         }
         update_weather();
         update_agent();
+        render_full_screen_locked();
     }
     bsp_display_brightness_set(active_brightness_percent);
     arm_display_timeout(timeout_ms);
@@ -421,34 +500,17 @@ static void finish_profile_update(bool preview_started)
 
 esp_err_t watch_ui_start(void)
 {
-    bsp_display_cfg_t cfg = {
-        .lvgl_port_cfg = ESP_LVGL_PORT_INIT_CONFIG(),
-        .buffer_size = BSP_LCD_DRAW_BUFF_SIZE,
-        .double_buffer = BSP_LCD_DRAW_BUFF_DOUBLE,
-        .flags = {
-            .buff_dma = false,
-            .buff_spiram = true,
-        },
-    };
-    cfg.lvgl_port_cfg.timer_period_ms = 20;
-    cfg.lvgl_port_cfg.task_max_sleep_ms = 1000;
-    if (bsp_display_start_with_config(&cfg) == NULL) {
+    lvgl_port_cfg_t port_cfg = ESP_LVGL_PORT_INIT_CONFIG();
+    port_cfg.timer_period_ms = 20;
+    port_cfg.task_max_sleep_ms = 1000;
+    if (start_display(&port_cfg) == NULL) {
         return ESP_FAIL;
     }
 
-    lv_indev_t *input = bsp_display_get_input_dev();
-    if (input != NULL) {
-        lv_indev_add_event_cb(input, on_touch, LV_EVENT_PRESSED, NULL);
-    }
+    lv_indev_add_event_cb(display_input, on_touch, LV_EVENT_PRESSED, NULL);
     gpio_wakeup_enable(BSP_LCD_TOUCH_INT, GPIO_INTR_LOW_LEVEL);
     esp_sleep_enable_gpio_wakeup();
-    esp_err_t err = bsp_display_brightness_set(active_brightness_percent);
-    if (err == ESP_OK) {
-        bsp_display_lock(0);
-        arm_display_timeout(DISPLAY_TIMEOUT_MS);
-        bsp_display_unlock();
-    }
-    return err;
+    return ESP_OK;
 }
 
 void watch_ui_show_pairing(uint32_t passkey)
@@ -472,6 +534,7 @@ void watch_ui_show_pairing(uint32_t passkey)
     lv_obj_t *hint = make_label(screen, "ENTER CODE ON DESKTOP", &jetbrains_mono_27);
     lv_obj_set_style_text_letter_space(hint, 1, 0);
     lv_obj_set_pos(hint, SAFE_INLINE, 283);
+    present_screen_locked();
     bsp_display_unlock();
 }
 
@@ -494,6 +557,7 @@ void watch_ui_show_time_unavailable(void)
     lv_obj_t *hint = make_label(screen, "CONNECT TO OMARCHY", &jetbrains_mono_27);
     lv_obj_set_style_text_letter_space(hint, 1, 0);
     lv_obj_set_pos(hint, SAFE_INLINE, 318);
+    present_screen_locked();
     bsp_display_unlock();
 }
 
@@ -516,6 +580,7 @@ void watch_ui_show_face(void)
     update_agent();
     clock_timer = lv_timer_create(update_clock, 1000, NULL);
     battery_timer = lv_timer_create(update_battery, 15000, NULL);
+    present_screen_locked();
     bsp_display_unlock();
 }
 
@@ -527,6 +592,7 @@ void watch_ui_show_error(const char *message)
     lv_obj_set_width(label, DISPLAY_WIDTH - (SAFE_INLINE * 2));
     lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
     lv_obj_set_pos(label, SAFE_INLINE, 220);
+    present_screen_locked();
     bsp_display_unlock();
 }
 
@@ -592,10 +658,6 @@ void watch_ui_apply_activity(uint8_t state, bool alert, bool sound)
         return;
     }
     const bool wake = alert && display_preview_allowed();
-    if (!display_awake && wake) {
-        lvgl_port_resume();
-        display_awake = true;
-    }
     bsp_display_lock(0);
     agent_activity_state = state;
     update_agent();
