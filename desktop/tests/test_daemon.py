@@ -239,6 +239,106 @@ class RevisionStateTests(unittest.TestCase):
         watch.sync_connected_profile.assert_not_called()
 
 
+class AgentActivityTests(unittest.TestCase):
+    def make_ledger(self, directory: str, epoch: int = 1_800_000_000):
+        return daemon.AgentActivityLedger(
+            Path(directory) / "agent-activity.json", epoch=epoch
+        )
+
+    def test_three_state_lifecycle_and_implicit_acknowledgement(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = self.make_ledger(directory)
+
+            self.assertTrue(ledger.working("codex", "session-1", "turn-1"))
+            self.assertEqual(ledger.aggregate()[0], daemon.ACTIVITY_WORKING)
+            self.assertTrue(ledger.completed(
+                "codex", "session-1", "turn-1", completed_at=int(time.time())
+            ))
+            self.assertEqual(ledger.aggregate()[0], daemon.ACTIVITY_ATTENTION)
+            self.assertTrue(ledger.working("codex", "session-1", "turn-2"))
+            self.assertEqual(ledger.aggregate()[0], daemon.ACTIVITY_WORKING)
+
+    def test_completion_cluster_only_alerts_once(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = self.make_ledger(directory)
+            now = int(time.time())
+            ledger.completed("codex", "one", "turn-1", completed_at=now)
+            state, revision, alert = ledger.aggregate(now)
+            self.assertEqual(state, daemon.ACTIVITY_ATTENTION)
+            self.assertTrue(alert)
+
+            ledger.mark_delivered_through(revision)
+            ledger.completed("codex", "two", "turn-2", completed_at=now)
+            self.assertFalse(ledger.aggregate(now)[2])
+
+    def test_watch_acknowledgement_only_clears_seen_revisions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = self.make_ledger(directory)
+            now = int(time.time())
+            ledger.completed("codex", "one", "turn-1", completed_at=now)
+            acknowledged_revision = ledger.revision
+            ledger.completed("codex", "two", "turn-2", completed_at=now)
+
+            self.assertTrue(ledger.acknowledge_through(acknowledged_revision))
+            self.assertNotIn("codex:one", ledger.sessions)
+            self.assertIn("codex:two", ledger.sessions)
+
+    def test_old_completion_cannot_replace_a_newer_running_turn(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = self.make_ledger(directory)
+            ledger.working("codex", "session-1", "turn-2")
+
+            self.assertFalse(ledger.completed(
+                "codex", "session-1", "turn-1", completed_at=int(time.time())
+            ))
+            self.assertEqual(ledger.sessions["codex:session-1"]["turn"], "turn-2")
+            self.assertEqual(ledger.aggregate()[0], daemon.ACTIVITY_WORKING)
+
+    def test_retained_watch_ack_keeps_future_revisions_monotonic(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = self.make_ledger(directory, epoch=100)
+
+            self.assertTrue(ledger.acknowledge_through(500))
+            ledger.working("codex", "session-1", "turn-1")
+
+            self.assertGreater(ledger.revision, 500)
+
+    def test_old_completion_restores_without_delayed_vibration(self):
+        with tempfile.TemporaryDirectory() as directory:
+            now = int(time.time())
+            ledger = self.make_ledger(directory)
+            ledger.completed(
+                "codex", "session-1", "turn-1",
+                completed_at=now - daemon.AGENT_ALERT_FRESH_SECONDS - 1,
+            )
+
+            state, _, alert = ledger.aggregate(now)
+            self.assertEqual(state, daemon.ACTIVITY_ATTENTION)
+            self.assertFalse(alert)
+
+    def test_only_pending_completions_survive_daemon_restart(self):
+        with tempfile.TemporaryDirectory() as directory:
+            now = int(time.time())
+            ledger = self.make_ledger(directory, epoch=now)
+            ledger.working("codex", "working", "turn-1")
+            ledger.completed("codex", "done", "turn-2", completed_at=now)
+
+            restored = self.make_ledger(directory, epoch=now)
+
+            self.assertNotIn("codex:working", restored.sessions)
+            self.assertIn("codex:done", restored.sessions)
+
+    def test_activity_packet_is_fixed_width(self):
+        payload = struct.pack(
+            "<2sBBBBII", b"OA", 1, daemon.ACTIVITY_ATTENTION, 1, 0, 42, 21
+        )
+
+        self.assertEqual(len(payload), 14)
+        self.assertEqual(
+            daemon.WatchDaemon.parse_activity_packet(payload), (42, 21, 1)
+        )
+
+
 class EffectiveContextTests(unittest.TestCase):
     def test_theme_palette_reads_resolved_omarchy_colors(self):
         with tempfile.TemporaryDirectory() as directory:

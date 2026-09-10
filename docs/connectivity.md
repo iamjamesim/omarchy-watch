@@ -34,6 +34,7 @@ the current owner.
 | Omarchy Watch service | `7f510001-1b15-4f0d-b7a5-4cf3a2c98ee1` |
 | Effective profile write | `7f510002-1b15-4f0d-b7a5-4cf3a2c98ee1` |
 | Device identity read | `7f510003-1b15-4f0d-b7a5-4cf3a2c98ee1` |
+| Agent activity read/write/notify | `7f510004-1b15-4f0d-b7a5-4cf3a2c98ee1` |
 
 Profile writes require authenticated encryption. Integers are little-endian.
 The version 1 packet remains a supported 36-byte time-only snapshot:
@@ -83,9 +84,27 @@ persistent always-wake preference. The desktop negotiates down to version 1 or
 2 for older firmware.
 
 Capability bits are time sync (`1 << 0`), hour cycle (`1 << 1`), board RTC
-(`1 << 2`), theme (`1 << 3`), weather (`1 << 4`), and display brightness
-(`1 << 5`). They describe optional device behavior; the negotiated protocol
-version determines packet layout.
+(`1 << 2`), theme (`1 << 3`), weather (`1 << 4`), display brightness
+(`1 << 5`), and agent activity (`1 << 6`). They describe optional device
+behavior; the negotiated protocol version determines profile packet layout.
+
+Agent activity uses a separate encrypted 14-byte snapshot so older profile
+versions remain unchanged:
+
+| Bytes | Field |
+| ---: | --- |
+| 2 | `OA` magic |
+| 1 | activity protocol version (`1`) |
+| 1 | state (`0` idle, `1` working, `2` attention) |
+| 1 | flags (bit 0 requests one fresh alert) |
+| 1 | reserved |
+| 4 | monotonic activity revision |
+| 4 | newest revision acknowledged on the watch |
+
+The desktop writes aggregate snapshots. Reading or receiving a notification
+from the same characteristic returns the watch's acknowledgement revision. A
+snapshot restores visual state after reconnect, while the alert flag is sent
+only for a fresh, not-yet-delivered transition.
 
 ## Reconnect and boot contract
 
@@ -128,10 +147,9 @@ advertising while the bridge continues reconnecting with bounded backoff.
 
 ## Current vertical slice
 
-The current slice pairs, persists the bond, identities, and effective profile,
-and sends desktop time, UTC offset, desktop-derived hour cycle, resolved theme
-colors, display brightness, and live weather. It renders and restores that
-profile across normal restarts. Theme, weather, and brightness changes trigger
-an immediate write over the persistent low-duty connection. Only recent theme
-and brightness changes request a short display preview. Seasonal timezone
+The current slice also accepts generic agent lifecycle events and sends their
+aggregate state over the same persistent low-duty connection. Completion wakes
+the display for five seconds and produces a single haptic transition; semantic
+attention persists until a watch acknowledgement, a new turn in that session,
+or session end. No session content crosses this protocol. Seasonal timezone
 rules and watch-side reset UI remain subsequent profile work.

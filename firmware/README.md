@@ -4,8 +4,9 @@ ESP-IDF firmware for the Waveshare ESP32-S3-Touch-AMOLED-2.06. It renders the
 Plain 01 face, exposes the versioned Omarchy Watch BLE service, and uses the
 board's PCF85063A real-time clock to restore trusted time after a restart. It
 also reads battery level and charging state directly from the AXP2101 power
-manager. The battery cluster uses the theme accent; tapping it reveals the
-exact percentage for three seconds.
+manager. The battery cluster uses the foreground while discharging and the
+theme accent while charging; tapping it reveals the exact percentage for three
+seconds.
 
 The display defaults to 50% brightness, follows the panel's 20–100% setting,
 and sleeps after 15 seconds; touching it wakes it and restarts the timeout.
@@ -16,6 +17,12 @@ modem sleep, and slower owned-device advertising reduce the idle load. After a
 link loss, the watch advertises more quickly for 30 seconds before returning to
 the slower rate. The cached v3 profile restores the last theme, brightness, and
 forecast without waiting for Bluetooth.
+
+Firmware 0.4 adds Omarchy's agent glyph and a GPIO18 haptic completion pattern.
+Working activity is static. An attention snapshot wakes the display for five
+seconds and bounces the glyph while visible; display sleep pauses the animation
+without clearing attention. Tapping the robot persists an acknowledgement
+revision in NVS and notifies the desktop when connected.
 
 While the native serial/JTAG interface is connected to a USB host, ESP-IDF
 holds its built-in no-light-sleep lock so flashing and monitoring remain

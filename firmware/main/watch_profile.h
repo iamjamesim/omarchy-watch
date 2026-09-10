@@ -9,8 +9,8 @@ enum {
     OMARCHY_PROTOCOL_VERSION = 3,
     OMARCHY_PROFILE_KIND = 1,
     OMARCHY_FIRMWARE_VERSION_MAJOR = 0,
-    OMARCHY_FIRMWARE_VERSION_MINOR = 3,
-    OMARCHY_FIRMWARE_VERSION_PATCH = 3,
+    OMARCHY_FIRMWARE_VERSION_MINOR = 4,
+    OMARCHY_FIRMWARE_VERSION_PATCH = 0,
     OMARCHY_MIN_UTC_OFFSET_MINUTES = -12 * 60,
     OMARCHY_MAX_UTC_OFFSET_MINUTES = 14 * 60,
     OMARCHY_CAP_TIME_SYNC = 1 << 0,
@@ -19,6 +19,7 @@ enum {
     OMARCHY_CAP_THEME = 1 << 3,
     OMARCHY_CAP_WEATHER = 1 << 4,
     OMARCHY_CAP_DISPLAY_BRIGHTNESS = 1 << 5,
+    OMARCHY_CAP_AGENT_ACTIVITY = 1 << 6,
     OMARCHY_PROFILE_WEATHER_VALID = 1 << 0,
     OMARCHY_PROFILE_WEATHER_FAHRENHEIT = 1 << 1,
     OMARCHY_PROFILE_WEATHER_NIGHT = 1 << 2,
@@ -93,10 +94,44 @@ typedef struct __attribute__((packed)) {
     uint8_t reserved_end;
 } omarchy_identity_v1_t;
 
+enum {
+    OMARCHY_ACTIVITY_VERSION = 1,
+    OMARCHY_ACTIVITY_NONE = 0,
+    OMARCHY_ACTIVITY_WORKING = 1,
+    OMARCHY_ACTIVITY_ATTENTION = 2,
+    OMARCHY_ACTIVITY_ALERT = 1 << 0,
+};
+
+/*
+ * Desktop-to-watch activity snapshot. The watch returns the same shape when
+ * read or notified, with acknowledged_revision set to the newest snapshot the
+ * wearer explicitly cleared.
+ */
+typedef struct __attribute__((packed)) {
+    uint8_t magic[2];
+    uint8_t version;
+    uint8_t state;
+    uint8_t flags;
+    uint8_t reserved;
+    uint32_t revision;
+    uint32_t acknowledged_revision;
+} omarchy_activity_v1_t;
+
 _Static_assert(sizeof(omarchy_profile_v1_t) == 36, "profile wire size changed");
 _Static_assert(sizeof(omarchy_profile_v2_t) == 81, "v2 profile wire size changed");
 _Static_assert(sizeof(omarchy_profile_v3_t) == 85, "v3 profile wire size changed");
 _Static_assert(sizeof(omarchy_identity_v1_t) == 32, "identity wire size changed");
+_Static_assert(sizeof(omarchy_activity_v1_t) == 14, "activity wire size changed");
+
+static inline bool omarchy_activity_v1_is_valid(const omarchy_activity_v1_t *activity)
+{
+    return activity != NULL && activity->magic[0] == 'O' &&
+           activity->magic[1] == 'A' &&
+           activity->version == OMARCHY_ACTIVITY_VERSION &&
+           activity->state <= OMARCHY_ACTIVITY_ATTENTION &&
+           (activity->flags & ~OMARCHY_ACTIVITY_ALERT) == 0 &&
+           activity->revision != 0;
+}
 
 static inline bool omarchy_profile_v1_is_valid(const omarchy_profile_v1_t *profile)
 {

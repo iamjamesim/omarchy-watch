@@ -30,8 +30,8 @@ and fatal-error screens are system states rather than face variants.
 - weather uses a two-column composition: icon/temperature and condition/range
 - the centered location footer identifies the forecast's provenance
 - battery level, charging state, weather, and location are live on hardware
-- the clock is the dominant accent focal point; the compact battery cluster
-  repeats accent as a counterweight in the top rail
+- the clock is the dominant accent focal point; the battery stays neutral until
+  charging, while an active agent uses Omarchy's accent robot in the top rail
 - tapping the battery temporarily replaces its glyph with the exact percentage
 - all supporting text and weather content remain foreground-colored
 - no controls, cards, vertical dividers, or decorative chrome
@@ -72,7 +72,7 @@ making the default typography unnecessarily small.
   digits, negative and three-digit weather, both hour cycles, and the longest
   supported localized date tokens.
 
-The v0.3 LVGL face uses the preferred English tier. Its input is deliberately
+The v0.4 LVGL face uses the preferred English tier. Its input is deliberately
 bounded until the fallback tiers are implemented.
 
 ## Preview contract
@@ -95,7 +95,7 @@ The prototype uses the resolved Solitude palette as its initial fixture:
 | --- | --- | --- |
 | Canvas | `bar.background` (fallback: `background`) | `#101315` |
 | Supporting content | `bar.text` (fallback: `foreground`) | `#cacccc` |
-| Clock and battery cluster | `accent` | `#798186` |
+| Clock and active status | `accent` | `#798186` |
 
 These values remain the deterministic preview fixture. On hardware, the
 desktop companion reads `background`, `foreground`, and `accent` from
@@ -105,6 +105,21 @@ Plain 01 does not substitute a darker watch-only surface. If accent does not
 meet a 3:1 contrast ratio against the background, the desktop falls back to
 foreground for legibility. An explicit watch-theme override remains future
 work.
+
+## Agent attention
+
+Agent activity has three mutually exclusive states per session: working,
+finished and awaiting attention, or absent. The face aggregates them with
+attention taking priority over work. Working shows Omarchy's exact
+`robot-excited` glyph as a static accent status; completion gives one
+double-pulse vibration, wakes the face for five seconds, and bounces the glyph
+whenever the screen is awake.
+The normal display timeout remains independent of semantic attention.
+
+Tapping the robot acknowledges every completed revision currently represented
+by the aggregate glyph. A new prompt implicitly acknowledges the previous
+result in that session, and interruption or session end removes it. The design
+does not infer acknowledgement from desktop window focus.
 
 ## Evolution constraints
 

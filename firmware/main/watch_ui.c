@@ -11,7 +11,9 @@
 #include "esp_lvgl_port.h"
 #include "esp_sleep.h"
 #include "lvgl.h"
+#include "watch_ble.h"
 #include "watch_face_layout.h"
+#include "watch_haptics.h"
 #include "watch_power.h"
 
 LV_FONT_DECLARE(jetbrains_mono_27);
@@ -39,6 +41,8 @@ static bool face_visible;
 static bool display_awake = true;
 static bool battery_percentage_visible;
 static bool battery_percentage_available;
+static uint8_t agent_activity_state;
+static uint32_t agent_tap_allowed_after;
 static int16_t utc_offset_minutes;
 static uint8_t hour_cycle = 24;
 static uint8_t active_brightness_percent = DEFAULT_BRIGHTNESS_PERCENT;
@@ -57,6 +61,38 @@ static bool weather_night;
 static char weather_location[24] = "SAN FRANCISCO";
 
 static void arm_display_timeout(uint32_t timeout_ms);
+
+static void set_agent_y(void *object, int32_t y)
+{
+    lv_obj_set_y((lv_obj_t *)object, y);
+}
+
+static void update_agent(void)
+{
+    if (!face_visible) {
+        return;
+    }
+    lv_anim_delete(face_layout.agent, set_agent_y);
+    lv_obj_set_y(face_layout.agent, 53);
+    watch_face_layout_set_agent(
+        &face_layout, agent_activity_state != OMARCHY_ACTIVITY_NONE
+    );
+    if (agent_activity_state != OMARCHY_ACTIVITY_ATTENTION) {
+        return;
+    }
+
+    lv_anim_t animation;
+    lv_anim_init(&animation);
+    lv_anim_set_var(&animation, face_layout.agent);
+    lv_anim_set_exec_cb(&animation, set_agent_y);
+    lv_anim_set_values(&animation, 53, 47);
+    lv_anim_set_duration(&animation, 320);
+    lv_anim_set_playback_duration(&animation, 320);
+    lv_anim_set_repeat_delay(&animation, 360);
+    lv_anim_set_repeat_count(&animation, LV_ANIM_REPEAT_INFINITE);
+    lv_anim_set_path_cb(&animation, lv_anim_path_ease_in_out);
+    lv_anim_start(&animation);
+}
 
 static lv_color_t foreground_color(void)
 {
@@ -222,6 +258,19 @@ static void on_battery_tap(lv_event_t *event)
     lv_timer_set_repeat_count(battery_percentage_timer, 1);
 }
 
+static void on_agent_tap(lv_event_t *event)
+{
+    (void)event;
+    if (!face_visible || !display_awake ||
+        agent_activity_state != OMARCHY_ACTIVITY_ATTENTION ||
+        (int32_t)(agent_tap_allowed_after - lv_tick_get()) > 0) {
+        return;
+    }
+    agent_activity_state = OMARCHY_ACTIVITY_NONE;
+    update_agent();
+    watch_ble_acknowledge_activity();
+}
+
 static const char *weather_icon_for_code(uint8_t code, bool night)
 {
     if (code == 0) return night ? "" : "";
@@ -303,13 +352,11 @@ static void arm_display_timeout(uint32_t timeout_ms)
     lv_timer_set_repeat_count(display_timer, 1);
 }
 
-static void on_touch(lv_event_t *event)
+static void wake_display_locked(uint32_t timeout_ms)
 {
-    (void)event;
     if (!display_awake) {
         lvgl_port_resume();
         display_awake = true;
-        bsp_display_brightness_set(active_brightness_percent);
         if (clock_timer != NULL) {
             lv_timer_resume(clock_timer);
             update_clock(NULL);
@@ -319,8 +366,20 @@ static void on_touch(lv_event_t *event)
             update_battery(NULL);
         }
         update_weather();
+        update_agent();
     }
-    arm_display_timeout(DISPLAY_TIMEOUT_MS);
+    bsp_display_brightness_set(active_brightness_percent);
+    arm_display_timeout(timeout_ms);
+}
+
+static void on_touch(lv_event_t *event)
+{
+    (void)event;
+    if (!display_awake) {
+        // A wake gesture must not also acknowledge a hidden alert beneath it.
+        agent_tap_allowed_after = lv_tick_get() + 600;
+    }
+    wake_display_locked(DISPLAY_TIMEOUT_MS);
 }
 
 static bool display_preview_allowed(void)
@@ -442,10 +501,14 @@ void watch_ui_show_face(void)
     lv_obj_add_event_cb(
         face_layout.battery_touch, on_battery_tap, LV_EVENT_CLICKED, NULL
     );
+    lv_obj_add_event_cb(
+        face_layout.agent_touch, on_agent_tap, LV_EVENT_CLICKED, NULL
+    );
 
     update_clock(NULL);
     update_battery(NULL);
     update_weather();
+    update_agent();
     clock_timer = lv_timer_create(update_clock, 1000, NULL);
     battery_timer = lv_timer_create(update_battery, 15000, NULL);
     bsp_display_unlock();
@@ -516,4 +579,26 @@ void watch_ui_apply_profile_v3(const omarchy_profile_v3_t *profile)
     apply_weather((const omarchy_profile_v2_t *)profile);
     watch_ui_apply_time(profile->unix_time, profile->utc_offset_minutes, profile->hour_cycle);
     finish_profile_update(preview_started);
+}
+
+void watch_ui_apply_activity(uint8_t state, bool alert)
+{
+    if (state > OMARCHY_ACTIVITY_ATTENTION) {
+        return;
+    }
+    const bool wake = alert && display_preview_allowed();
+    if (!display_awake && wake) {
+        lvgl_port_resume();
+        display_awake = true;
+    }
+    bsp_display_lock(0);
+    agent_activity_state = state;
+    update_agent();
+    if (wake) {
+        wake_display_locked(DISPLAY_PREVIEW_TIMEOUT_MS);
+    }
+    bsp_display_unlock();
+    if (alert) {
+        watch_haptics_completion();
+    }
 }

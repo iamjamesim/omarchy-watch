@@ -37,6 +37,7 @@ AGENT = "org.bluez.Agent1"
 SERVICE_UUID = "7f510001-1b15-4f0d-b7a5-4cf3a2c98ee1"
 CONTROL_UUID = "7f510002-1b15-4f0d-b7a5-4cf3a2c98ee1"
 IDENTITY_UUID = "7f510003-1b15-4f0d-b7a5-4cf3a2c98ee1"
+ACTIVITY_UUID = "7f510004-1b15-4f0d-b7a5-4cf3a2c98ee1"
 AGENT_PATH = "/io/github/omarchy/watch/agent"
 PROTOCOL_VERSION = 3
 PAIRING_TIMEOUT_SECONDS = 20
@@ -54,6 +55,13 @@ DEFAULT_BRIGHTNESS = 50
 DEFAULT_BACKGROUND = bytes((0x10, 0x13, 0x15))
 DEFAULT_FOREGROUND = bytes((0xCA, 0xCC, 0xCC))
 DEFAULT_ACCENT = bytes((0x79, 0x81, 0x86))
+AGENT_COMPLETION_DEBOUNCE_MILLISECONDS = 1500
+AGENT_ALERT_FRESH_SECONDS = 2 * 60 * 60
+AGENT_LEDGER_MAX_AGE_SECONDS = 24 * 60 * 60
+ACTIVITY_NONE = 0
+ACTIVITY_WORKING = 1
+ACTIVITY_ATTENTION = 2
+ACTIVITY_ALERT = 1 << 0
 
 
 def parse_hex_color(value: object, fallback: bytes) -> bytes:
@@ -176,7 +184,7 @@ def fetch_weather(opener=urllib.request.urlopen) -> dict:
     })
     request = urllib.request.Request(
         f"https://api.open-meteo.com/v1/forecast?{query}",
-        headers={"User-Agent": "omarchy-watch/0.3"},
+        headers={"User-Agent": "omarchy-watch/0.4"},
     )
     with opener(request, timeout=6) as response:
         report = json.loads(response.read())
@@ -193,6 +201,165 @@ def fetch_weather(opener=urllib.request.urlopen) -> dict:
         "fahrenheit": imperial,
         "location": location["name"],
     }
+
+
+class AgentActivityLedger:
+    """Minimal durable attention state; Codex remains the session authority."""
+
+    def __init__(self, path: Path, epoch: int | None = None):
+        self.path = path
+        self.sessions: dict[str, dict] = {}
+        self.revision = max(1, int(time.time()) if epoch is None else epoch)
+        self.load(epoch)
+
+    @staticmethod
+    def key(source: str, session: str) -> str:
+        return f"{source}:{session}"
+
+    def load(self, epoch: int | None = None) -> None:
+        now = int(time.time()) if epoch is None else epoch
+        try:
+            document = json.loads(self.path.read_text())
+            if document.get("schema") != 1:
+                return
+            self.revision = max(self.revision, int(document.get("revision", 0) or 0))
+            for record in document.get("completions", []):
+                completed_at = int(record.get("completedAt", 0) or 0)
+                revision = int(record.get("revision", 0) or 0)
+                source = str(record.get("source", ""))
+                session = str(record.get("session", ""))
+                turn = str(record.get("turn", ""))
+                if (not source or not session or not turn or revision <= 0 or
+                        now - completed_at > AGENT_LEDGER_MAX_AGE_SECONDS):
+                    continue
+                self.sessions[self.key(source, session)] = {
+                    "source": source,
+                    "session": session,
+                    "turn": turn,
+                    "state": "attention",
+                    "revision": revision,
+                    "completedAt": completed_at,
+                    "delivered": bool(record.get("delivered")),
+                }
+        except (FileNotFoundError, OSError, TypeError, ValueError, json.JSONDecodeError):
+            return
+
+    def save(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        completions = [
+            record for record in self.sessions.values()
+            if record["state"] == "attention"
+        ]
+        temporary = self.path.with_suffix(".tmp")
+        temporary.write_text(json.dumps({
+            "schema": 1,
+            "revision": self.revision,
+            "completions": completions,
+        }, separators=(",", ":")) + "\n")
+        os.chmod(temporary, 0o600)
+        temporary.replace(self.path)
+
+    def next_revision(self, epoch: int | None = None) -> int:
+        now = int(time.time()) if epoch is None else epoch
+        self.revision = max(now, self.revision + 1)
+        return self.revision
+
+    def working(self, source: str, session: str, turn: str) -> bool:
+        key = self.key(source, session)
+        previous = self.sessions.get(key)
+        if previous and previous["state"] == "working" and previous["turn"] == turn:
+            return False
+        self.sessions[key] = {
+            "source": source,
+            "session": session,
+            "turn": turn,
+            "state": "working",
+            "revision": self.next_revision(),
+        }
+        self.save()
+        return True
+
+    def completed(self, source: str, session: str, turn: str,
+                  completed_at: int | None = None) -> bool:
+        key = self.key(source, session)
+        previous = self.sessions.get(key)
+        if previous and previous["state"] == "attention" and previous["turn"] == turn:
+            return False
+        if previous and previous["state"] == "working" and previous["turn"] != turn:
+            # A delayed completion from an older turn must not replace newer work.
+            return False
+        had_attention = any(
+            record["state"] == "attention" for record in self.sessions.values()
+        )
+        self.sessions[key] = {
+            "source": source,
+            "session": session,
+            "turn": turn,
+            "state": "attention",
+            "revision": self.next_revision(),
+            "completedAt": int(time.time()) if completed_at is None else completed_at,
+            # A completion joining an existing attention cluster is represented
+            # by the existing alert instead of producing another vibration.
+            "delivered": had_attention,
+        }
+        self.save()
+        return True
+
+    def remove(self, source: str, session: str) -> bool:
+        if self.sessions.pop(self.key(source, session), None) is None:
+            return False
+        self.next_revision()
+        self.save()
+        return True
+
+    def acknowledge_through(self, revision: int) -> bool:
+        changed = False
+        for key, record in list(self.sessions.items()):
+            if record["state"] == "attention" and record["revision"] <= revision:
+                del self.sessions[key]
+                changed = True
+        if changed:
+            self.next_revision()
+        elif revision >= self.revision:
+            # A watch may retain its acknowledgement after the desktop state
+            # file is restored or replaced. Keep future events above it.
+            self.revision = revision + 1
+            changed = True
+        if changed:
+            self.save()
+        return changed
+
+    def mark_delivered_through(self, revision: int) -> None:
+        changed = False
+        for record in self.sessions.values():
+            if (record["state"] == "attention" and
+                    record["revision"] <= revision and not record["delivered"]):
+                record["delivered"] = True
+                changed = True
+        if changed:
+            self.save()
+
+    def aggregate(self, epoch: int | None = None) -> tuple[int, int, bool]:
+        now = int(time.time()) if epoch is None else epoch
+        attention = [
+            record for record in self.sessions.values()
+            if record["state"] == "attention"
+        ]
+        if attention:
+            fresh_undelivered = any(
+                not record["delivered"] and
+                0 <= now - record["completedAt"] <= AGENT_ALERT_FRESH_SECONDS
+                for record in attention
+            )
+            return ACTIVITY_ATTENTION, self.revision, fresh_undelivered
+        if any(record["state"] == "working" for record in self.sessions.values()):
+            return ACTIVITY_WORKING, self.revision, False
+        return ACTIVITY_NONE, self.revision, False
+
+    def counts(self) -> tuple[int, int]:
+        working = sum(record["state"] == "working" for record in self.sessions.values())
+        attention = sum(record["state"] == "attention" for record in self.sessions.values())
+        return working, attention
 
 
 class Rejected(dbus.DBusException):
@@ -295,6 +462,12 @@ class WatchDaemon:
         self.reconnect_not_before = 0.0
         self.reconnect_delay = RECONNECT_INITIAL_SECONDS
         self.write_inflight = False
+        self.activity_dirty = True
+        self.activity_inflight_revision = 0
+        self.activity_notify_path = ""
+        self.activity_notify_match = None
+        self.activity_notifications_started = False
+        self.pending_agent_completions: dict[str, int] = {}
         self.identity_verified = False
         self.discovery_active = False
         self.context_refresh_inflight = False
@@ -318,6 +491,7 @@ class WatchDaemon:
         self.sync_state_path = self.state_dir / "sync.json"
         self.identity_path = self.config_dir / "identity.json"
         self.settings_path = self.config_dir / "settings.json"
+        self.activity_ledger_path = self.state_dir / "agent-activity.json"
         self.cache_dir = xdg_path("XDG_CACHE_HOME", ".cache") / "omarchy-watch"
         self.weather_cache_path = self.cache_dir / "weather.json"
         self.theme_path = Path.home() / ".local/state/omarchy/current/theme/colors.toml"
@@ -330,6 +504,8 @@ class WatchDaemon:
         self.weather = self.load_cached_weather()
         self.brightness = self.load_brightness()
         self.host_id = self.load_host_id()
+        self.agent_activity = AgentActivityLedger(self.activity_ledger_path)
+        agent_working, agent_attention = self.agent_activity.counts()
         sync_state = self.load_sync_state()
         self.last_profile_revision = int(sync_state.get("profileRevision", 0) or 0)
         self.synced_fingerprint = str(sync_state.get("syncedRevision", ""))
@@ -352,6 +528,11 @@ class WatchDaemon:
             "firmware": str(sync_state.get("firmware", "")),
             "capabilities": int(sync_state.get("capabilities", 0) or 0),
             "watchOwned": bool(sync_state.get("watchOwned", False)),
+            "agentState": (
+                "attention" if agent_attention else "working" if agent_working else "idle"
+            ),
+            "agentsWorking": agent_working,
+            "agentsAwaitingAttention": agent_attention,
         }
         self.write_state()
 
@@ -789,9 +970,11 @@ class WatchDaemon:
         )
         if paired:
             if connected:
-                if (properties.get("ServicesResolved") and self.sync_needed() and
-                        self.reconnect_ready()):
-                    self.sync_connected_profile()
+                if properties.get("ServicesResolved") and self.reconnect_ready():
+                    if self.sync_needed():
+                        self.sync_connected_profile()
+                    elif self.activity_dirty:
+                        self.sync_connected_activity()
             elif (not self.connect_inflight and
                   self.pending_passkey is None and self.reconnect_ready()):
                 GLib.idle_add(self.ensure_connection)
@@ -903,6 +1086,8 @@ class WatchDaemon:
             device_changes = plain(changed)
             if "Connected" in device_changes and not device_changes["Connected"]:
                 self.identity_verified = False
+                self.activity_dirty = True
+                self.activity_notifications_started = False
                 if self.state.get("connected"):
                     self.schedule_reconnect()
             connection_keys = {
@@ -931,6 +1116,8 @@ class WatchDaemon:
         self.connect_inflight = False
         self.write_inflight = False
         self.identity_verified = False
+        self.activity_dirty = True
+        self.activity_notifications_started = False
         self.discovery_active = False
         self.reset_reconnect_backoff()
         self.root = self.bluez_object("/")
@@ -1118,7 +1305,7 @@ class WatchDaemon:
         if self.write_inflight:
             return
         if not self.sync_needed():
-            self.refresh_devices()
+            self.sync_connected_activity()
             return
         identity_path = self.find_characteristic(IDENTITY_UUID)
         control_path = self.find_characteristic(CONTROL_UUID)
@@ -1302,6 +1489,8 @@ class WatchDaemon:
         self.reset_reconnect_backoff()
         if self.sync_needed():
             self.sync_connected_profile()
+        elif getattr(self, "activity_dirty", False):
+            self.sync_connected_activity()
 
     def on_profile_error(self, error) -> None:
         self.write_inflight = False
@@ -1314,6 +1503,218 @@ class WatchDaemon:
             return
         message = error.get_dbus_message() if isinstance(error, dbus.DBusException) else str(error)
         self.fail(f"Profile sync failed: {message}")
+
+    def sync_connected_activity(self) -> None:
+        if self.write_inflight or not self.activity_dirty:
+            return
+        if not self.state.get("connected"):
+            self.ensure_connection()
+            return
+        activity_path = self.find_characteristic(ACTIVITY_UUID)
+        if not activity_path:
+            # Firmware before agent activity simply ignores this optional feature.
+            self.activity_dirty = False
+            return
+        self.write_inflight = True
+        if self.activity_notify_path != activity_path:
+            if self.activity_notify_match is not None:
+                self.activity_notify_match.remove()
+            self.activity_notify_path = activity_path
+            self.activity_notify_match = self.bus.add_signal_receiver(
+                self.on_activity_properties_changed,
+                dbus_interface=PROPERTIES,
+                signal_name="PropertiesChanged",
+                path=activity_path,
+            )
+            self.activity_notifications_started = False
+        if self.activity_notifications_started:
+            self.read_activity_ack()
+            return
+        characteristic = dbus.Interface(
+            self.bluez_object(activity_path), GATT_CHARACTERISTIC
+        )
+        characteristic.StartNotify(
+            reply_handler=self.on_activity_notify_started,
+            error_handler=self.on_activity_notify_error,
+            timeout=10,
+        )
+
+    def on_activity_notify_started(self) -> None:
+        self.activity_notifications_started = True
+        self.read_activity_ack()
+
+    def on_activity_notify_error(self, error) -> None:
+        name = error.get_dbus_name() if isinstance(error, dbus.DBusException) else ""
+        if name not in {
+            "org.bluez.Error.InProgress",
+            "org.bluez.Error.AlreadyExists",
+        }:
+            self.log(f"Activity notifications unavailable: {error}")
+        else:
+            self.activity_notifications_started = True
+        # Reads on reconnect still reconcile offline watch acknowledgements.
+        self.read_activity_ack()
+
+    def read_activity_ack(self) -> None:
+        activity_path = self.find_characteristic(ACTIVITY_UUID)
+        if not activity_path:
+            self.write_inflight = False
+            return
+        characteristic = dbus.Interface(
+            self.bluez_object(activity_path), GATT_CHARACTERISTIC
+        )
+        characteristic.ReadValue(
+            dbus.Dictionary({}, signature="sv"),
+            reply_handler=self.on_activity_read,
+            error_handler=self.on_activity_error,
+            timeout=10,
+        )
+
+    @staticmethod
+    def parse_activity_packet(raw_activity) -> tuple[int, int, int] | None:
+        value = bytes(int(item) for item in raw_activity)
+        if len(value) != 14:
+            return None
+        magic, version, state, flags, _, revision, acknowledged = struct.unpack(
+            "<2sBBBBII", value
+        )
+        if magic != b"OA" or version != 1 or state > ACTIVITY_ATTENTION:
+            return None
+        return revision, acknowledged, flags
+
+    def on_activity_read(self, raw_activity) -> None:
+        parsed = self.parse_activity_packet(raw_activity)
+        if parsed is None:
+            self.write_inflight = False
+            self.log("Watch returned an invalid activity acknowledgement")
+            return
+        _, acknowledged, _ = parsed
+        if self.agent_activity.acknowledge_through(acknowledged):
+            self.update_agent_status()
+        self.write_activity()
+
+    def activity_payload(self) -> bytes:
+        state, revision, alert = self.agent_activity.aggregate()
+        flags = ACTIVITY_ALERT if alert else 0
+        self.activity_inflight_revision = revision
+        return struct.pack("<2sBBBBII", b"OA", 1, state, flags, 0, revision, 0)
+
+    def write_activity(self) -> None:
+        activity_path = self.find_characteristic(ACTIVITY_UUID)
+        if not activity_path:
+            self.write_inflight = False
+            return
+        characteristic = dbus.Interface(
+            self.bluez_object(activity_path), GATT_CHARACTERISTIC
+        )
+        characteristic.WriteValue(
+            dbus.Array(self.activity_payload(), signature="y"),
+            {"type": dbus.String("request")},
+            reply_handler=self.on_activity_written,
+            error_handler=self.on_activity_error,
+            timeout=10,
+        )
+
+    def on_activity_written(self) -> None:
+        self.write_inflight = False
+        self.agent_activity.mark_delivered_through(self.activity_inflight_revision)
+        self.activity_dirty = self.agent_activity.revision != self.activity_inflight_revision
+        if self.sync_needed():
+            self.sync_connected_profile()
+        elif self.activity_dirty:
+            self.sync_connected_activity()
+
+    def on_activity_error(self, error) -> None:
+        self.write_inflight = False
+        self.activity_dirty = True
+        if self.handle_transport_error(error):
+            return
+        self.log(f"Agent activity sync failed: {error}")
+
+    def on_activity_properties_changed(self, interface, changed, invalidated) -> None:
+        del invalidated
+        if interface != GATT_CHARACTERISTIC or "Value" not in changed:
+            return
+        parsed = self.parse_activity_packet(changed["Value"])
+        if parsed is None:
+            return
+        _, acknowledged, _ = parsed
+        if self.agent_activity.acknowledge_through(acknowledged):
+            self.activity_dirty = True
+            self.update_agent_status()
+            self.sync_connected_activity()
+
+    @staticmethod
+    def valid_agent_identifier(value: object) -> str:
+        text = str(value or "")
+        if not text or len(text) > 160 or any(ord(character) < 0x20 for character in text):
+            return ""
+        return text
+
+    def update_agent_status(self) -> None:
+        working, attention = self.agent_activity.counts()
+        self.write_state(
+            agentState="attention" if attention else "working" if working else "idle",
+            agentsWorking=working,
+            agentsAwaitingAttention=attention,
+        )
+
+    def agent_activity_changed(self) -> None:
+        self.activity_dirty = True
+        self.update_agent_status()
+        if not self.state.get("paired"):
+            return
+        if self.state.get("connected"):
+            self.sync_connected_activity()
+        else:
+            self.ensure_connection()
+
+    def cancel_pending_completion(self, source: str, session: str) -> None:
+        key = AgentActivityLedger.key(source, session)
+        source_id = self.pending_agent_completions.pop(key, 0)
+        if source_id:
+            GLib.source_remove(source_id)
+
+    def finish_agent_completion(self, source: str, session: str,
+                                turn: str, completed_at: int) -> bool:
+        self.pending_agent_completions.pop(
+            AgentActivityLedger.key(source, session), None
+        )
+        if self.agent_activity.completed(source, session, turn, completed_at):
+            self.agent_activity_changed()
+        return False
+
+    def handle_agent_event(self, command: dict) -> None:
+        source = self.valid_agent_identifier(command.get("source"))
+        session = self.valid_agent_identifier(command.get("session"))
+        turn = self.valid_agent_identifier(command.get("turn"))
+        event = str(command.get("event", ""))
+        if not source or not session or event not in {
+            "working", "completed", "interrupted", "ended",
+        }:
+            self.log("Ignored invalid agent activity event")
+            return
+
+        self.cancel_pending_completion(source, session)
+        if event == "working":
+            if not turn:
+                return
+            if self.agent_activity.working(source, session, turn):
+                self.agent_activity_changed()
+            return
+        if event == "completed":
+            if not turn:
+                return
+            completed_at = int(command.get("timestamp", 0) or time.time())
+            key = AgentActivityLedger.key(source, session)
+            self.pending_agent_completions[key] = GLib.timeout_add(
+                AGENT_COMPLETION_DEBOUNCE_MILLISECONDS,
+                self.finish_agent_completion,
+                source, session, turn, completed_at,
+            )
+            return
+        if self.agent_activity.remove(source, session):
+            self.agent_activity_changed()
 
     def handle_command(self, command: dict) -> None:
         action = command.get("command")
@@ -1338,6 +1739,8 @@ class WatchDaemon:
             self.save_settings()
             self.write_state(brightness=brightness)
             self.context_changed(preview=True)
+        elif action == "agent-event":
+            self.handle_agent_event(command)
         else:
             self.fail("Unknown watch command")
 

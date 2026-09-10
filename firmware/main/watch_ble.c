@@ -31,6 +31,10 @@ static const ble_uuid128_t identity_uuid = BLE_UUID128_INIT(
     0xe1, 0x8e, 0xc9, 0xa2, 0xf3, 0x4c, 0xa5, 0xb7,
     0x0d, 0x4f, 0x15, 0x1b, 0x03, 0x00, 0x51, 0x7f
 );
+static const ble_uuid128_t activity_uuid = BLE_UUID128_INIT(
+    0xe1, 0x8e, 0xc9, 0xa2, 0xf3, 0x4c, 0xa5, 0xb7,
+    0x0d, 0x4f, 0x15, 0x1b, 0x04, 0x00, 0x51, 0x7f
+);
 
 static uint8_t own_addr_type;
 static uint32_t passkey;
@@ -39,6 +43,14 @@ static bool watch_owned;
 static omarchy_identity_v1_t identity;
 static uint8_t owner_id[16];
 static uint16_t idle_params_conn_handle = BLE_HS_CONN_HANDLE_NONE;
+static uint16_t activity_conn_handle = BLE_HS_CONN_HANDLE_NONE;
+static uint16_t activity_attr_handle;
+static uint32_t last_alerted_activity_revision;
+static omarchy_activity_v1_t activity = {
+    .magic = {'O', 'A'},
+    .version = OMARCHY_ACTIVITY_VERSION,
+    .state = OMARCHY_ACTIVITY_NONE,
+};
 
 enum {
     IDLE_CONN_INTERVAL_MIN = 160, /* 200 ms in 1.25 ms units. */
@@ -144,6 +156,47 @@ static void load_or_create_device_id(uint8_t device_id[16])
     nvs_close(nvs);
 }
 
+static void load_activity_acknowledgement(void)
+{
+    nvs_handle_t nvs;
+    if (nvs_open("omarchy", NVS_READONLY, &nvs) == ESP_OK) {
+        uint32_t acknowledged_revision = 0;
+        if (nvs_get_u32(nvs, "activity_ack", &acknowledged_revision) == ESP_OK) {
+            activity.acknowledged_revision = acknowledged_revision;
+        }
+        nvs_close(nvs);
+    }
+}
+
+static void persist_activity_acknowledgement(void)
+{
+    nvs_handle_t nvs;
+    if (nvs_open("omarchy", NVS_READWRITE, &nvs) != ESP_OK) {
+        return;
+    }
+    if (nvs_set_u32(nvs, "activity_ack", activity.acknowledged_revision) == ESP_OK) {
+        nvs_commit(nvs);
+    }
+    nvs_close(nvs);
+}
+
+static void notify_activity(void)
+{
+    if (activity_conn_handle == BLE_HS_CONN_HANDLE_NONE || activity_attr_handle == 0) {
+        return;
+    }
+    struct os_mbuf *packet = ble_hs_mbuf_from_flat(&activity, sizeof(activity));
+    if (packet == NULL) {
+        return;
+    }
+    int rc = ble_gatts_notify_custom(
+        activity_conn_handle, activity_attr_handle, packet
+    );
+    if (rc != 0) {
+        ESP_LOGD(TAG, "Activity acknowledgement notification skipped: %d", rc);
+    }
+}
+
 static int gatt_access(uint16_t conn_handle, uint16_t attr_handle,
                        struct ble_gatt_access_ctxt *ctxt, void *arg)
 {
@@ -155,6 +208,41 @@ static int gatt_access(uint16_t conn_handle, uint16_t attr_handle,
         ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
         return os_mbuf_append(ctxt->om, &identity, sizeof(identity)) == 0
             ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+
+    if (ble_uuid_cmp(requested, &activity_uuid.u) == 0) {
+        if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
+            return os_mbuf_append(ctxt->om, &activity, sizeof(activity)) == 0
+                ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+        }
+        if (ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR ||
+            OS_MBUF_PKTLEN(ctxt->om) != sizeof(omarchy_activity_v1_t)) {
+            return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+        }
+        omarchy_activity_v1_t incoming;
+        uint16_t copied = 0;
+        if (ble_hs_mbuf_to_flat(
+                ctxt->om, &incoming, sizeof(incoming), &copied
+            ) != 0 || copied != sizeof(incoming) ||
+            !omarchy_activity_v1_is_valid(&incoming)) {
+            return BLE_ATT_ERR_UNLIKELY;
+        }
+        if (incoming.revision < activity.revision) {
+            return 0;
+        }
+        const bool alert = incoming.state == OMARCHY_ACTIVITY_ATTENTION &&
+                           (incoming.flags & OMARCHY_ACTIVITY_ALERT) != 0 &&
+                           incoming.revision > last_alerted_activity_revision &&
+                           incoming.revision > activity.acknowledged_revision;
+        activity.revision = incoming.revision;
+        activity.flags = 0;
+        activity.state = incoming.revision <= activity.acknowledged_revision
+            ? OMARCHY_ACTIVITY_NONE : incoming.state;
+        if (alert) {
+            last_alerted_activity_revision = incoming.revision;
+        }
+        watch_ui_apply_activity(activity.state, alert);
+        return 0;
     }
 
     if (ble_uuid_cmp(requested, &control_uuid.u) == 0 &&
@@ -236,6 +324,16 @@ static const struct ble_gatt_svc_def services[] = {
                 .arg = (void *)&identity_uuid.u,
                 .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_READ_ENC,
             },
+            {
+                .uuid = &activity_uuid.u,
+                .access_cb = gatt_access,
+                .arg = (void *)&activity_uuid.u,
+                .val_handle = &activity_attr_handle,
+                .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_READ_ENC |
+                         BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_ENC |
+                         BLE_GATT_CHR_F_WRITE_AUTHEN |
+                         BLE_GATT_CHR_F_NOTIFY,
+            },
             {0},
         },
     },
@@ -251,7 +349,9 @@ static int gap_event(struct ble_gap_event *event, void *arg)
 
     switch (event->type) {
     case BLE_GAP_EVENT_CONNECT:
-        if (event->connect.status != 0) {
+        if (event->connect.status == 0) {
+            activity_conn_handle = event->connect.conn_handle;
+        } else {
             advertise(true);
         }
         return 0;
@@ -270,6 +370,9 @@ static int gap_event(struct ble_gap_event *event, void *arg)
                  event->disconnect.reason);
         if (event->disconnect.conn.conn_handle == idle_params_conn_handle) {
             idle_params_conn_handle = BLE_HS_CONN_HANDLE_NONE;
+        }
+        if (event->disconnect.conn.conn_handle == activity_conn_handle) {
+            activity_conn_handle = BLE_HS_CONN_HANDLE_NONE;
         }
         advertise(true);
         return 0;
@@ -389,12 +492,13 @@ esp_err_t watch_ble_start(uint32_t pairing_passkey, bool owned)
         .flags = owned ? 1 : 0,
         .capabilities = OMARCHY_CAP_TIME_SYNC | OMARCHY_CAP_HOUR_CYCLE |
                         OMARCHY_CAP_RTC | OMARCHY_CAP_THEME | OMARCHY_CAP_WEATHER |
-                        OMARCHY_CAP_DISPLAY_BRIGHTNESS,
+                        OMARCHY_CAP_DISPLAY_BRIGHTNESS | OMARCHY_CAP_AGENT_ACTIVITY,
         .firmware_major = OMARCHY_FIRMWARE_VERSION_MAJOR,
         .firmware_minor = OMARCHY_FIRMWARE_VERSION_MINOR,
         .firmware_patch = OMARCHY_FIRMWARE_VERSION_PATCH,
     };
     load_or_create_device_id(identity.device_id);
+    load_activity_acknowledgement();
     if (owned && load_owner_state(owner_id, &profile_revision) != ESP_OK) {
         ESP_LOGE(TAG, "Owned watch is missing its desktop identity");
         return ESP_ERR_INVALID_STATE;
@@ -414,7 +518,6 @@ esp_err_t watch_ble_start(uint32_t pairing_passkey, bool owned)
     if (rc != 0) {
         return ESP_FAIL;
     }
-
     ble_hs_cfg.sync_cb = on_sync;
     ble_hs_cfg.store_status_cb = ble_store_util_status_rr;
     ble_hs_cfg.sm_io_cap = BLE_HS_IO_DISPLAY_ONLY;
@@ -432,4 +535,15 @@ esp_err_t watch_ble_start(uint32_t pairing_passkey, bool owned)
 
     nimble_port_freertos_init(host_task);
     return ESP_OK;
+}
+
+void watch_ble_acknowledge_activity(void)
+{
+    if (activity.state != OMARCHY_ACTIVITY_ATTENTION || activity.revision == 0) {
+        return;
+    }
+    activity.acknowledged_revision = activity.revision;
+    activity.state = OMARCHY_ACTIVITY_NONE;
+    persist_activity_acknowledgement();
+    notify_activity();
 }

@@ -9,13 +9,14 @@ This is an independent community project, not an official Omarchy project.
 
 ![Plain 01 watch face](docs/images/plain-01.png)
 
-## v0.3 checkpoint
+## v0.4 checkpoint
 
 - Plain 01 watch face at the display's native 410 x 502 resolution
 - compact date/battery header, dominant clock, live weather, and
   location footer in JetBrains Mono
 - live AXP2101 battery level and charging state
-- accent-colored battery status with tap-to-reveal exact percentage
+- foreground-colored battery status with tap-to-reveal exact percentage;
+  charging alone promotes the battery and bolt to the theme accent
 - deterministic desktop previews rendered by the same LVGL layout as firmware
 - authenticated Bluetooth LE pairing using the six-digit code on the watch
 - persistent watch and desktop identities; pairing is a one-time setup
@@ -35,6 +36,11 @@ This is an independent community project, not an official Omarchy project.
   automatic reconnect after link loss, and no handshake for each update
 - five-second, low-battery-aware previews for prompt theme and brightness
   changes; periodic weather and time updates stay dark
+- Codex turn activity through official lifecycle hooks: Omarchy's robot glyph
+  stays static while work runs, then the watch wakes, gives one double-pulse
+  vibration, and gently bounces until the result is acknowledged
+- revisioned activity snapshots and a minimal completion ledger preserve
+  acknowledgements across BLE loss without storing prompts or responses
 
 The simulator keeps a deterministic San Francisco/Solitude fixture for pixel
 comparisons; firmware receives live values in the version 3 effective profile.
@@ -87,11 +93,12 @@ The command writes square and rounded PNGs under `simulator/output/`. See the
 [simulator guide](simulator/README.md) for host dependencies and the boundary
 between deterministic previews and physical-display validation.
 
-## Direction after v0.3
+## Direction after v0.4
 
-The next coherent slice is companion behavior: notifications, media controls,
-and explicit follow-or-override settings. Additional faces and seasonal
-timezone rules can build on the same effective-profile foundation.
+The next coherent slice can widen the generic activity adapter to other agents,
+then add notifications, media controls, and explicit follow-or-override
+settings. Additional faces and seasonal timezone rules can build on the same
+effective-profile foundation.
 
 Longer-term possibilities include a deeper Omarchy companion, agent-generated
 watch software, daily-watch fundamentals, and ports to hardware such as

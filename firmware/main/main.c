@@ -9,6 +9,7 @@
 #include "nvs_flash.h"
 
 #include "watch_ble.h"
+#include "watch_haptics.h"
 #include "watch_power.h"
 #include "watch_profile.h"
 #include "watch_rtc.h"
@@ -108,6 +109,7 @@ void app_main(void)
     const uint32_t passkey = owned ? 0 : 100000 + (esp_random() % 900000);
 
     ESP_ERROR_CHECK(watch_ui_start());
+    ESP_ERROR_CHECK(watch_haptics_start());
     esp_err_t power_err = watch_power_init();
     if (power_err != ESP_OK) {
         ESP_LOGW(TAG, "Battery telemetry unavailable: %s",

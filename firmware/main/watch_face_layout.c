@@ -6,6 +6,7 @@ LV_FONT_DECLARE(jetbrains_mono_14_battery);
 LV_FONT_DECLARE(jetbrains_mono_22);
 LV_FONT_DECLARE(jetbrains_mono_27);
 LV_FONT_DECLARE(jetbrains_mono_30_battery);
+LV_FONT_DECLARE(jetbrains_mono_32_agent);
 LV_FONT_DECLARE(jetbrains_mono_42);
 LV_FONT_DECLARE(jetbrains_mono_48_icons);
 LV_FONT_DECLARE(jetbrains_mono_114);
@@ -100,6 +101,22 @@ void watch_face_layout_create(lv_obj_t *screen,
     lv_obj_set_pos(layout->battery_percentage, 322, 64);
     lv_obj_add_flag(layout->battery_percentage, LV_OBJ_FLAG_HIDDEN);
 
+    // Omarchy's Material Design robot-excited glyph (U+F16A3).
+    layout->agent = make_label(screen, "󱚣", &jetbrains_mono_32_agent);
+    lv_obj_set_style_text_color(layout->agent, accent_color, 0);
+    lv_obj_set_size(layout->agent, 38, 38);
+    lv_obj_set_style_text_align(layout->agent, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_pos(layout->agent, 285, 53);
+    lv_obj_add_flag(layout->agent, LV_OBJ_FLAG_HIDDEN);
+
+    layout->agent_touch = lv_obj_create(screen);
+    lv_obj_remove_style_all(layout->agent_touch);
+    lv_obj_set_pos(layout->agent_touch, 270, 42);
+    lv_obj_set_size(layout->agent_touch, 62, 58);
+    lv_obj_add_flag(layout->agent_touch, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(layout->agent_touch, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(layout->agent_touch, LV_OBJ_FLAG_HIDDEN);
+
     // Keep the visible battery compact while giving it a forgiving touch target.
     layout->battery_touch = lv_obj_create(screen);
     lv_obj_remove_style_all(layout->battery_touch);
@@ -187,8 +204,11 @@ void watch_face_layout_set_battery(watch_face_layout_t *layout,
                                    const char *percentage,
                                    bool show_percentage)
 {
+    const lv_color_t battery_color = charging ? accent_color : foreground_color;
     lv_label_set_text(layout->battery, glyph);
     lv_label_set_text(layout->battery_percentage, percentage);
+    lv_obj_set_style_text_color(layout->battery, battery_color, 0);
+    lv_obj_set_style_text_color(layout->battery_percentage, battery_color, 0);
     if (show_percentage) {
         lv_obj_add_flag(layout->battery, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(layout->battery_charge, LV_OBJ_FLAG_HIDDEN);
@@ -206,5 +226,16 @@ void watch_face_layout_set_battery(watch_face_layout_t *layout,
         lv_obj_remove_flag(layout->battery_charge, LV_OBJ_FLAG_HIDDEN);
     } else {
         lv_obj_add_flag(layout->battery_charge, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+void watch_face_layout_set_agent(watch_face_layout_t *layout, bool visible)
+{
+    if (visible) {
+        lv_obj_remove_flag(layout->agent, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(layout->agent_touch, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(layout->agent, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(layout->agent_touch, LV_OBJ_FLAG_HIDDEN);
     }
 }

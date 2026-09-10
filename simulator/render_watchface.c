@@ -116,6 +116,7 @@ int main(int argc, char **argv)
     watch_face_layout_set_battery(
         &layout, "󰂀", true, argc == 6 ? argv[5] : "70%", argc == 6
     ); // U+F0080, battery-70
+    watch_face_layout_set_agent(&layout, true);
     lv_refr_now(display);
 
     const int result = write_ppm(output_path, &draw_buffer);

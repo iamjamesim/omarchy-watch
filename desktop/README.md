@@ -46,6 +46,22 @@ desired and acknowledged fingerprints throughout recovery.
 The bundled endpoint is Open-Meteo's non-commercial free API. Commercial
 derivatives must use an appropriate Open-Meteo plan or replace the provider.
 
+## Agent activity
+
+The bridge accepts provider-neutral lifecycle events over its local socket. A
+small Codex adapter uses the official
+[`UserPromptSubmit`, `Stop`, `Interrupt`, and `SessionEnd` hooks](https://learn.chatgpt.com/docs/hooks).
+It never reads transcripts, prompts, or responses.
+Running turns live only in memory; the state directory retains opaque IDs and
+delivery metadata only for unacknowledged completions.
+
+The watch renders one aggregate state: any completion awaiting attention wins
+over running work. The first completion in a cluster produces one haptic alert;
+later completions join it without a vibration storm. A watch tap acknowledges
+all completion revisions it has seen. Reconnects reconcile that revision before
+sending a current snapshot, with delayed vibration limited to results completed
+within the last two hours.
+
 ## Install a development checkout
 
 From the repository root:
@@ -54,9 +70,12 @@ From the repository root:
 ./desktop/install-local.sh
 ```
 
-The installer copies the daemon, command, user service, and plugin into
-standard per-user locations, starts the service, and enables the right-side bar
+The installer copies the daemon, commands, user service, and plugin into
+standard per-user locations, merges the lifecycle adapter into
+`~/.codex/hooks.json`, starts the service, and enables the right-side bar
 widget. It does not modify Omarchy's system files and requires no root access.
+Codex requires review of newly installed user hooks; open `/hooks` in Codex and
+trust the Omarchy Watch entries before starting a new session.
 
 Re-run the command after changing desktop source files.
 
@@ -90,5 +109,9 @@ comparing that fingerprint with the daemon's current desired fingerprint; it
 does not rely on a mutable pending flag.
 
 Watch settings live beside the identity in `settings.json`.
+
+Unacknowledged agent completion envelopes live in `agent-activity.json`. This
+file contains no conversation content and is pruned after acknowledgement or a
+24-hour recovery limit.
 
 The forecast cache follows `XDG_CACHE_HOME` (falling back to `~/.cache`).

@@ -21,6 +21,7 @@ add_executable(render-watchface
     ../firmware/main/fonts/jetbrains_mono_22.c
     ../firmware/main/fonts/jetbrains_mono_27.c
     ../firmware/main/fonts/jetbrains_mono_30_battery.c
+    ../firmware/main/fonts/jetbrains_mono_32_agent.c
     ../firmware/main/fonts/jetbrains_mono_42.c
     ../firmware/main/fonts/jetbrains_mono_48_icons.c
     ../firmware/main/fonts/jetbrains_mono_114.c
