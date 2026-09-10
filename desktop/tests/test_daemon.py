@@ -305,7 +305,7 @@ class AgentActivityTests(unittest.TestCase):
             self.assertTrue(ledger.working("codex", "session-1", "turn-2"))
             self.assertEqual(ledger.aggregate()[0], daemon.ACTIVITY_WORKING)
 
-    def test_completion_cluster_only_alerts_once(self):
+    def test_each_distinct_completion_alerts_once(self):
         with tempfile.TemporaryDirectory() as directory:
             ledger = self.make_ledger(directory)
             now = int(time.time())
@@ -316,6 +316,27 @@ class AgentActivityTests(unittest.TestCase):
 
             ledger.mark_delivered_through(revision)
             ledger.completed("codex", "two", "turn-2", completed_at=now)
+            state, revision, alert = ledger.aggregate(now)
+            self.assertEqual(state, daemon.ACTIVITY_ATTENTION)
+            self.assertTrue(alert)
+
+            ledger.mark_delivered_through(revision)
+            self.assertFalse(ledger.aggregate(now)[2])
+
+    def test_duplicate_completion_does_not_alert_again(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = self.make_ledger(directory)
+            now = int(time.time())
+            self.assertTrue(ledger.completed(
+                "codex", "one", "turn-1", completed_at=now
+            ))
+            _, revision, alert = ledger.aggregate(now)
+            self.assertTrue(alert)
+            ledger.mark_delivered_through(revision)
+
+            self.assertFalse(ledger.completed(
+                "codex", "one", "turn-1", completed_at=now
+            ))
             self.assertFalse(ledger.aggregate(now)[2])
 
     def test_watch_acknowledgement_only_clears_seen_revisions(self):

@@ -288,9 +288,6 @@ class AgentActivityLedger:
         if previous and previous["state"] == "working" and previous["turn"] != turn:
             # A delayed completion from an older turn must not replace newer work.
             return False
-        had_attention = any(
-            record["state"] == "attention" for record in self.sessions.values()
-        )
         self.sessions[key] = {
             "source": source,
             "session": session,
@@ -298,9 +295,9 @@ class AgentActivityLedger:
             "state": "attention",
             "revision": self.next_revision(),
             "completedAt": int(time.time()) if completed_at is None else completed_at,
-            # A completion joining an existing attention cluster is represented
-            # by the existing alert instead of producing another vibration.
-            "delivered": had_attention,
+            # Every distinct completion gets one alert. Successful delivery is
+            # persisted so reconnects and repeated snapshots remain silent.
+            "delivered": False,
         }
         self.save()
         return True

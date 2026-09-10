@@ -104,7 +104,7 @@ versions remain unchanged:
 The desktop writes aggregate snapshots. Reading or receiving a notification
 from the same characteristic returns the watch's acknowledgement revision. A
 snapshot restores visual state after reconnect, while the alert flag is sent
-only for a fresh, not-yet-delivered transition.
+once for each fresh, not-yet-delivered completion.
 
 The public `0.4.0` GATT database is the compatibility boundary. Firmware
 upgrades keep its services, characteristics, and permissions stable and evolve

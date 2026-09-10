@@ -56,11 +56,11 @@ Running turns live only in memory; the state directory retains opaque IDs and
 delivery metadata only for unacknowledged completions.
 
 The watch renders one aggregate state: any completion awaiting attention wins
-over running work. The first completion in a cluster produces one haptic alert;
-later completions join it without a vibration storm. A watch tap acknowledges
-all completion revisions it has seen. Reconnects reconcile that revision before
-sending a current snapshot, with delayed vibration limited to results completed
-within the last two hours.
+over running work. Every distinct completion produces one haptic alert, even
+while an earlier result still awaits attention. A watch tap acknowledges all
+completion revisions it has seen. Reconnects reconcile that revision before
+sending a current snapshot without repeating delivered alerts; delayed vibration
+is limited to results completed within the last two hours.
 
 ## Install a development checkout
 
