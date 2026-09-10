@@ -19,6 +19,7 @@ Panel {
     connected: false,
     lastSynced: 0,
     brightness: 50,
+    completionSound: true,
     message: "Watch service is not running"
   })
   property string actionError: ""
@@ -38,6 +39,7 @@ Panel {
   readonly property bool busy: status === "pairing" || status === "syncing" || command.running
   readonly property bool brightnessAvailable: Number(state.protocol || 0) >= 3
     && (Number(state.capabilities || 0) & 32) !== 0
+  readonly property bool soundAvailable: (Number(state.capabilities || 0) & 128) !== 0
   readonly property color foreground: bar ? bar.foreground : Color.foreground
   readonly property color dim: Qt.darker(foreground, 1.45)
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
@@ -379,6 +381,41 @@ Panel {
           enabled: !root.busy
           onReleased: function(value) {
             root.run(["brightness", String(Math.round(value))])
+          }
+        }
+
+        PanelSeparator {
+          visible: root.soundAvailable
+          Layout.fillWidth: true
+        }
+
+        PanelSectionHeader {
+          visible: root.soundAvailable
+          text: "ALERTS"
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+        }
+
+        RowLayout {
+          visible: root.soundAvailable
+          Layout.fillWidth: true
+
+          Text {
+            text: "COMPLETION SOUND"
+            color: root.foreground
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.body
+          }
+
+          Item { Layout.fillWidth: true }
+
+          ToggleSwitch {
+            checked: Boolean(root.state.completionSound)
+            busy: root.busy
+            foreground: root.foreground
+            onToggled: root.run([
+              "sound", Boolean(root.state.completionSound) ? "off" : "on"
+            ])
           }
         }
 

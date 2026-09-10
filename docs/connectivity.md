@@ -85,8 +85,9 @@ persistent always-wake preference. The desktop negotiates down to version 1 or
 
 Capability bits are time sync (`1 << 0`), hour cycle (`1 << 1`), board RTC
 (`1 << 2`), theme (`1 << 3`), weather (`1 << 4`), display brightness
-(`1 << 5`), and agent activity (`1 << 6`). They describe optional device
-behavior; the negotiated protocol version determines profile packet layout.
+(`1 << 5`), agent activity (`1 << 6`), and completion sound (`1 << 7`). They
+describe optional device behavior; the negotiated protocol version determines
+profile packet layout.
 
 Agent activity uses a separate encrypted 14-byte snapshot so older profile
 versions remain unchanged:
@@ -96,7 +97,7 @@ versions remain unchanged:
 | 2 | `OA` magic |
 | 1 | activity protocol version (`1`) |
 | 1 | state (`0` idle, `1` working, `2` attention) |
-| 1 | flags (bit 0 requests one fresh alert) |
+| 1 | flags (bit 0 requests one fresh alert; bit 1 requests its sound) |
 | 1 | reserved |
 | 4 | monotonic activity revision |
 | 4 | newest revision acknowledged on the watch |
@@ -104,7 +105,8 @@ versions remain unchanged:
 The desktop writes aggregate snapshots. Reading or receiving a notification
 from the same characteristic returns the watch's acknowledgement revision. A
 snapshot restores visual state after reconnect, while the alert flag is sent
-once for each fresh, not-yet-delivered completion.
+once for each fresh, not-yet-delivered completion. Sound is capability-gated so
+older firmware never receives a flag it cannot parse.
 
 The public `0.4.0` GATT database is the compatibility boundary. Firmware
 upgrades keep its services, characteristics, and permissions stable and evolve
@@ -157,7 +159,8 @@ stuck behind `InProgress`.
 
 The current slice also accepts generic agent lifecycle events and sends their
 aggregate state over the same persistent low-duty connection. Completion wakes
-the display for five seconds and produces a single haptic transition; semantic
-attention persists until a watch acknowledgement, a new turn in that session,
-or session end. No session content crosses this protocol. Seasonal timezone
-rules and watch-side reset UI remain subsequent profile work.
+the display for five seconds and, when enabled, plays one short speaker chime;
+an optional GPIO18 motor receives the same alert transition. Semantic attention
+persists until a watch acknowledgement, a new turn in that session, or session
+end. No session content crosses this protocol. Seasonal timezone rules and
+watch-side reset UI remain subsequent profile work.

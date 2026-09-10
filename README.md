@@ -37,8 +37,9 @@ This is an independent community project, not an official Omarchy project.
 - five-second, low-battery-aware previews for prompt theme and brightness
   changes; periodic weather and time updates stay dark
 - Codex turn activity through official lifecycle hooks: Omarchy's robot glyph
-  stays static while work runs, then the watch wakes, gives one double-pulse
-  vibration, and gently bounces until the result is acknowledged
+  stays static while work runs, then the watch wakes, plays a toggleable chime,
+  and gently bounces until the result is acknowledged; GPIO18 remains available
+  for an optional vibration motor
 - revisioned activity snapshots and a minimal completion ledger preserve
   acknowledgements across BLE loss without storing prompts or responses
 

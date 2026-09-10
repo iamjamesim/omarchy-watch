@@ -15,6 +15,7 @@
 #include "watch_face_layout.h"
 #include "watch_haptics.h"
 #include "watch_power.h"
+#include "watch_sound.h"
 
 LV_FONT_DECLARE(jetbrains_mono_27);
 LV_FONT_DECLARE(jetbrains_mono_42);
@@ -585,7 +586,7 @@ void watch_ui_apply_profile_v3(const omarchy_profile_v3_t *profile)
     finish_profile_update(preview_started);
 }
 
-void watch_ui_apply_activity(uint8_t state, bool alert)
+void watch_ui_apply_activity(uint8_t state, bool alert, bool sound)
 {
     if (state > OMARCHY_ACTIVITY_ATTENTION) {
         return;
@@ -604,5 +605,8 @@ void watch_ui_apply_activity(uint8_t state, bool alert)
     bsp_display_unlock();
     if (alert) {
         watch_haptics_completion();
+    }
+    if (sound) {
+        watch_sound_completion();
     }
 }

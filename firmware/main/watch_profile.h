@@ -9,7 +9,7 @@ enum {
     OMARCHY_PROTOCOL_VERSION = 3,
     OMARCHY_PROFILE_KIND = 1,
     OMARCHY_FIRMWARE_VERSION_MAJOR = 0,
-    OMARCHY_FIRMWARE_VERSION_MINOR = 4,
+    OMARCHY_FIRMWARE_VERSION_MINOR = 5,
     OMARCHY_FIRMWARE_VERSION_PATCH = 0,
     OMARCHY_MIN_UTC_OFFSET_MINUTES = -12 * 60,
     OMARCHY_MAX_UTC_OFFSET_MINUTES = 14 * 60,
@@ -20,6 +20,7 @@ enum {
     OMARCHY_CAP_WEATHER = 1 << 4,
     OMARCHY_CAP_DISPLAY_BRIGHTNESS = 1 << 5,
     OMARCHY_CAP_AGENT_ACTIVITY = 1 << 6,
+    OMARCHY_CAP_COMPLETION_SOUND = 1 << 7,
     OMARCHY_PROFILE_WEATHER_VALID = 1 << 0,
     OMARCHY_PROFILE_WEATHER_FAHRENHEIT = 1 << 1,
     OMARCHY_PROFILE_WEATHER_NIGHT = 1 << 2,
@@ -100,6 +101,7 @@ enum {
     OMARCHY_ACTIVITY_WORKING = 1,
     OMARCHY_ACTIVITY_ATTENTION = 2,
     OMARCHY_ACTIVITY_ALERT = 1 << 0,
+    OMARCHY_ACTIVITY_SOUND = 1 << 1,
 };
 
 /*
@@ -129,7 +131,7 @@ static inline bool omarchy_activity_v1_is_valid(const omarchy_activity_v1_t *act
            activity->magic[1] == 'A' &&
            activity->version == OMARCHY_ACTIVITY_VERSION &&
            activity->state <= OMARCHY_ACTIVITY_ATTENTION &&
-           (activity->flags & ~OMARCHY_ACTIVITY_ALERT) == 0 &&
+           (activity->flags & ~(OMARCHY_ACTIVITY_ALERT | OMARCHY_ACTIVITY_SOUND)) == 0 &&
            activity->revision != 0;
 }
 

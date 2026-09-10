@@ -52,6 +52,7 @@ RECONNECT_MAX_SECONDS = 5 * 60
 MIN_BRIGHTNESS = 20
 MAX_BRIGHTNESS = 100
 DEFAULT_BRIGHTNESS = 50
+DEFAULT_COMPLETION_SOUND = True
 DEFAULT_BACKGROUND = bytes((0x10, 0x13, 0x15))
 DEFAULT_FOREGROUND = bytes((0xCA, 0xCC, 0xCC))
 DEFAULT_ACCENT = bytes((0x79, 0x81, 0x86))
@@ -62,6 +63,8 @@ ACTIVITY_NONE = 0
 ACTIVITY_WORKING = 1
 ACTIVITY_ATTENTION = 2
 ACTIVITY_ALERT = 1 << 0
+ACTIVITY_SOUND = 1 << 1
+CAP_COMPLETION_SOUND = 1 << 7
 
 
 def parse_hex_color(value: object, fallback: bytes) -> bytes:
@@ -501,6 +504,7 @@ class WatchDaemon:
         self.palette = theme_palette(self.theme_path, self.theme_shell_path)
         self.weather = self.load_cached_weather()
         self.brightness = self.load_brightness()
+        self.completion_sound = self.load_completion_sound()
         self.host_id = self.load_host_id()
         self.agent_activity = AgentActivityLedger(self.activity_ledger_path)
         agent_working, agent_attention = self.agent_activity.counts()
@@ -521,6 +525,7 @@ class WatchDaemon:
             "weatherLocation": self.weather.get("location", ""),
             "weatherUpdated": self.weather.get("updatedAt", 0),
             "brightness": self.brightness,
+            "completionSound": self.completion_sound,
             "deviceId": str(sync_state.get("deviceId", "")),
             "protocol": int(sync_state.get("protocol", 0) or 0),
             "firmware": str(sync_state.get("firmware", "")),
@@ -572,6 +577,16 @@ class WatchDaemon:
         except (FileNotFoundError, KeyError, TypeError, ValueError, json.JSONDecodeError):
             pass
         return DEFAULT_BRIGHTNESS
+
+    def load_completion_sound(self) -> bool:
+        try:
+            document = json.loads(self.settings_path.read_text())
+            enabled = document["completionSound"]
+            if isinstance(enabled, bool):
+                return enabled
+        except (FileNotFoundError, KeyError, TypeError, json.JSONDecodeError):
+            pass
+        return DEFAULT_COMPLETION_SOUND
 
     def load_sync_state(self) -> dict:
         try:
@@ -724,6 +739,7 @@ class WatchDaemon:
         temporary.write_text(json.dumps({
             "schema": 1,
             "brightness": self.brightness,
+            "completionSound": self.completion_sound,
         }, indent=2) + "\n")
         os.chmod(temporary, 0o600)
         temporary.replace(self.settings_path)
@@ -1635,6 +1651,9 @@ class WatchDaemon:
     def activity_payload(self) -> bytes:
         state, revision, alert = self.agent_activity.aggregate()
         flags = ACTIVITY_ALERT if alert else 0
+        if (alert and self.completion_sound and
+                int(self.state.get("capabilities", 0) or 0) & CAP_COMPLETION_SOUND):
+            flags |= ACTIVITY_SOUND
         self.activity_inflight_revision = revision
         return struct.pack("<2sBBBBII", b"OA", 1, state, flags, 0, revision, 0)
 
@@ -1778,6 +1797,14 @@ class WatchDaemon:
             self.save_settings()
             self.write_state(brightness=brightness)
             self.context_changed(preview=True)
+        elif action == "sound":
+            enabled = command.get("enabled")
+            if not isinstance(enabled, bool):
+                self.fail("Completion sound must be on or off")
+                return
+            self.completion_sound = enabled
+            self.save_settings()
+            self.write_state(completionSound=enabled)
         elif action == "agent-event":
             self.handle_agent_event(command)
         else:

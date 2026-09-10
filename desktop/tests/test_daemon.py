@@ -407,7 +407,7 @@ class AgentActivityTests(unittest.TestCase):
 
             self.assertGreater(ledger.revision, 500)
 
-    def test_old_completion_restores_without_delayed_vibration(self):
+    def test_old_completion_restores_without_delayed_alert(self):
         with tempfile.TemporaryDirectory() as directory:
             now = int(time.time())
             ledger = self.make_ledger(directory)
@@ -441,6 +441,56 @@ class AgentActivityTests(unittest.TestCase):
         self.assertEqual(
             daemon.WatchDaemon.parse_activity_packet(payload), (42, 21, 1)
         )
+
+    def test_fresh_completion_requests_sound_when_supported_and_enabled(self):
+        with tempfile.TemporaryDirectory() as directory:
+            watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
+            watch.agent_activity = self.make_ledger(directory)
+            watch.agent_activity.completed(
+                "codex", "session-1", "turn-1", completed_at=int(time.time())
+            )
+            watch.completion_sound = True
+            watch.state = {"capabilities": daemon.CAP_COMPLETION_SOUND}
+
+            _, _, _, flags, _, _, _ = struct.unpack(
+                "<2sBBBBII", watch.activity_payload()
+            )
+
+            self.assertEqual(
+                flags, daemon.ACTIVITY_ALERT | daemon.ACTIVITY_SOUND
+            )
+
+    def test_sound_is_not_requested_when_disabled(self):
+        with tempfile.TemporaryDirectory() as directory:
+            watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
+            watch.agent_activity = self.make_ledger(directory)
+            watch.agent_activity.completed(
+                "codex", "session-1", "turn-1", completed_at=int(time.time())
+            )
+            watch.completion_sound = False
+            watch.state = {"capabilities": daemon.CAP_COMPLETION_SOUND}
+
+            _, _, _, flags, _, _, _ = struct.unpack(
+                "<2sBBBBII", watch.activity_payload()
+            )
+
+            self.assertEqual(flags, daemon.ACTIVITY_ALERT)
+
+    def test_old_firmware_never_receives_unknown_sound_flag(self):
+        with tempfile.TemporaryDirectory() as directory:
+            watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
+            watch.agent_activity = self.make_ledger(directory)
+            watch.agent_activity.completed(
+                "codex", "session-1", "turn-1", completed_at=int(time.time())
+            )
+            watch.completion_sound = True
+            watch.state = {"capabilities": 0}
+
+            _, _, _, flags, _, _, _ = struct.unpack(
+                "<2sBBBBII", watch.activity_payload()
+            )
+
+            self.assertEqual(flags, daemon.ACTIVITY_ALERT)
 
 
 class EffectiveContextTests(unittest.TestCase):
@@ -517,10 +567,31 @@ class EffectiveContextTests(unittest.TestCase):
             watch.config_dir = Path(directory)
             watch.settings_path = watch.config_dir / "settings.json"
             watch.brightness = 65
+            watch.completion_sound = True
 
             watch.save_settings()
 
             self.assertEqual(watch.load_brightness(), 65)
+
+    def test_completion_sound_setting_round_trips(self):
+        with tempfile.TemporaryDirectory() as directory:
+            watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
+            watch.config_dir = Path(directory)
+            watch.settings_path = watch.config_dir / "settings.json"
+            watch.brightness = daemon.DEFAULT_BRIGHTNESS
+            watch.completion_sound = False
+
+            watch.save_settings()
+
+            self.assertFalse(watch.load_completion_sound())
+
+    def test_completion_sound_defaults_on_for_existing_settings(self):
+        with tempfile.TemporaryDirectory() as directory:
+            watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
+            watch.settings_path = Path(directory) / "settings.json"
+            watch.settings_path.write_text('{"schema":1,"brightness":50}\n')
+
+            self.assertTrue(watch.load_completion_sound())
 
     def test_open_meteo_weather_reuses_omarchy_location_and_units(self):
         report = {

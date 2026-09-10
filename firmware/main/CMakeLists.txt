@@ -6,6 +6,7 @@ idf_component_register(
         "watch_haptics.c"
         "watch_power.c"
         "watch_rtc.c"
+        "watch_sound.c"
         "watch_ui.c"
         "fonts/jetbrains_mono_14_battery.c"
         "fonts/jetbrains_mono_22.c"

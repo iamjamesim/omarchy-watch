@@ -18,7 +18,9 @@ link loss, the watch advertises more quickly for 30 seconds before returning to
 the slower rate. The cached v3 profile restores the last theme, brightness, and
 forecast without waiting for Bluetooth.
 
-Firmware 0.4 adds Omarchy's agent glyph and a GPIO18 haptic completion pattern.
+Firmware 0.5 adds a short completion chime through the board speaker. It is
+enabled by default and toggleable from the Omarchy panel. The GPIO18 haptic
+pattern remains available for boards fitted with an optional vibration motor.
 Working activity is static. An attention snapshot wakes the display for five
 seconds and bounces the glyph while visible; display sleep pauses the animation
 without clearing attention. Tapping the robot persists an acknowledgement

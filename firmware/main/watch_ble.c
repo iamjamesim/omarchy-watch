@@ -234,6 +234,8 @@ static int gatt_access(uint16_t conn_handle, uint16_t attr_handle,
                            (incoming.flags & OMARCHY_ACTIVITY_ALERT) != 0 &&
                            incoming.revision > last_alerted_activity_revision &&
                            incoming.revision > activity.acknowledged_revision;
+        const bool sound = alert &&
+                           (incoming.flags & OMARCHY_ACTIVITY_SOUND) != 0;
         activity.revision = incoming.revision;
         activity.flags = 0;
         activity.state = incoming.revision <= activity.acknowledged_revision
@@ -241,7 +243,7 @@ static int gatt_access(uint16_t conn_handle, uint16_t attr_handle,
         if (alert) {
             last_alerted_activity_revision = incoming.revision;
         }
-        watch_ui_apply_activity(activity.state, alert);
+        watch_ui_apply_activity(activity.state, alert, sound);
         return 0;
     }
 
@@ -492,7 +494,8 @@ esp_err_t watch_ble_start(uint32_t pairing_passkey, bool owned)
         .flags = owned ? 1 : 0,
         .capabilities = OMARCHY_CAP_TIME_SYNC | OMARCHY_CAP_HOUR_CYCLE |
                         OMARCHY_CAP_RTC | OMARCHY_CAP_THEME | OMARCHY_CAP_WEATHER |
-                        OMARCHY_CAP_DISPLAY_BRIGHTNESS | OMARCHY_CAP_AGENT_ACTIVITY,
+                        OMARCHY_CAP_DISPLAY_BRIGHTNESS | OMARCHY_CAP_AGENT_ACTIVITY |
+                        OMARCHY_CAP_COMPLETION_SOUND,
         .firmware_major = OMARCHY_FIRMWARE_VERSION_MAJOR,
         .firmware_minor = OMARCHY_FIRMWARE_VERSION_MINOR,
         .firmware_patch = OMARCHY_FIRMWARE_VERSION_PATCH,

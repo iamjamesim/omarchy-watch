@@ -56,11 +56,12 @@ Running turns live only in memory; the state directory retains opaque IDs and
 delivery metadata only for unacknowledged completions.
 
 The watch renders one aggregate state: any completion awaiting attention wins
-over running work. Every distinct completion produces one haptic alert, even
-while an earlier result still awaits attention. A watch tap acknowledges all
-completion revisions it has seen. Reconnects reconcile that revision before
-sending a current snapshot without repeating delivered alerts; delayed vibration
-is limited to results completed within the last two hours.
+over running work. Every distinct completion produces one alert, even while an
+earlier result still awaits attention. Firmware with speaker support plays the
+panel's toggleable completion sound; GPIO18 can also drive an optional motor. A
+watch tap acknowledges all completion revisions it has seen. Reconnects reconcile
+that revision before sending a current snapshot without repeating delivered
+alerts; delayed alerts are limited to results completed within the last two hours.
 
 ## Install a development checkout
 
