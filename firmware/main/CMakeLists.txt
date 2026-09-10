@@ -10,6 +10,7 @@ idf_component_register(
         "watch_ui.c"
         "fonts/jetbrains_mono_14_battery.c"
         "fonts/jetbrains_mono_22.c"
+        "fonts/jetbrains_mono_26_connection.c"
         "fonts/jetbrains_mono_27.c"
         "fonts/jetbrains_mono_30_battery.c"
         "fonts/jetbrains_mono_42.c"

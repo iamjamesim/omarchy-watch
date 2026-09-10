@@ -24,6 +24,7 @@ typedef struct {
     lv_obj_t *battery_charge;
     lv_obj_t *battery_percentage;
     lv_obj_t *battery_touch;
+    lv_obj_t *connection;
     lv_obj_t *agent;
     lv_obj_t *agent_touch;
     lv_obj_t *weather_icon;
@@ -47,6 +48,7 @@ void watch_face_layout_set_battery(watch_face_layout_t *layout,
                                    bool charging,
                                    const char *percentage,
                                    bool show_percentage);
+void watch_face_layout_set_connected(watch_face_layout_t *layout, bool connected);
 void watch_face_layout_set_agent(watch_face_layout_t *layout, bool visible);
 void watch_face_layout_set_weather(watch_face_layout_t *layout,
                                    const char *icon,

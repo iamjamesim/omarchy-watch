@@ -4,6 +4,7 @@
 
 LV_FONT_DECLARE(jetbrains_mono_14_battery);
 LV_FONT_DECLARE(jetbrains_mono_22);
+LV_FONT_DECLARE(jetbrains_mono_26_connection);
 LV_FONT_DECLARE(jetbrains_mono_27);
 LV_FONT_DECLARE(jetbrains_mono_30_battery);
 LV_FONT_DECLARE(jetbrains_mono_32_agent);
@@ -100,6 +101,13 @@ void watch_face_layout_create(lv_obj_t *screen,
     lv_obj_set_style_text_align(layout->battery_percentage, LV_TEXT_ALIGN_RIGHT, 0);
     lv_obj_set_pos(layout->battery_percentage, 322, 64);
     lv_obj_add_flag(layout->battery_percentage, LV_OBJ_FLAG_HIDDEN);
+
+    // U+F0338 is Nerd Fonts' Material Design Icons link-off glyph.
+    layout->connection = make_label(screen, "󰌸", &jetbrains_mono_26_connection);
+    lv_obj_set_style_text_color(layout->connection, accent_color, 0);
+    lv_obj_set_size(layout->connection, 28, 28);
+    lv_obj_set_style_text_align(layout->connection, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_pos(layout->connection, 247, 62);
 
     // Omarchy's Material Design robot-excited glyph (U+F16A3).
     layout->agent = make_label(screen, "󱚣", &jetbrains_mono_32_agent);
@@ -226,6 +234,15 @@ void watch_face_layout_set_battery(watch_face_layout_t *layout,
         lv_obj_remove_flag(layout->battery_charge, LV_OBJ_FLAG_HIDDEN);
     } else {
         lv_obj_add_flag(layout->battery_charge, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+void watch_face_layout_set_connected(watch_face_layout_t *layout, bool connected)
+{
+    if (connected) {
+        lv_obj_add_flag(layout->connection, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_remove_flag(layout->connection, LV_OBJ_FLAG_HIDDEN);
     }
 }
 

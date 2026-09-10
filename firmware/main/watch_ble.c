@@ -376,6 +376,7 @@ static int gap_event(struct ble_gap_event *event, void *arg)
         if (event->disconnect.conn.conn_handle == activity_conn_handle) {
             activity_conn_handle = BLE_HS_CONN_HANDLE_NONE;
         }
+        watch_ui_set_connected(false);
         advertise(true);
         return 0;
 
@@ -407,9 +408,12 @@ static int gap_event(struct ble_gap_event *event, void *arg)
 
     case BLE_GAP_EVENT_ENC_CHANGE:
         ESP_LOGI(TAG, "Encryption changed, status=%d", event->enc_change.status);
-        if (event->enc_change.status == 0 && watch_owned &&
-            event->enc_change.conn_handle != idle_params_conn_handle) {
-            request_idle_connection_parameters(event->enc_change.conn_handle);
+        if (event->enc_change.status == 0) {
+            activity_conn_handle = event->enc_change.conn_handle;
+            watch_ui_set_connected(true);
+            if (watch_owned && event->enc_change.conn_handle != idle_params_conn_handle) {
+                request_idle_connection_parameters(event->enc_change.conn_handle);
+            }
         }
         return 0;
 

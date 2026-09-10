@@ -46,6 +46,10 @@ npx "${common[@]}" --size 22 \
   --range 0x20,0x25,0x30-0x39,0x48,0x4C,0xB0 \
   --output "$output_dir/jetbrains_mono_22.c"
 
+npx "${common[@]}" --size 26 \
+  --range 0xF0338 \
+  --output "$output_dir/jetbrains_mono_26_connection.c"
+
 npx "${common[@]}" --size 30 \
   --range 0xF0079-0xF0082,0xF0091 \
   --output "$output_dir/jetbrains_mono_30_battery.c"

@@ -44,6 +44,7 @@ static bool face_visible;
 static bool display_awake = true;
 static bool battery_percentage_visible;
 static bool battery_percentage_available;
+static bool ble_connected;
 static uint8_t agent_activity_state;
 static uint32_t agent_tap_allowed_after;
 static int16_t utc_offset_minutes;
@@ -171,6 +172,14 @@ static void update_agent(void)
     lv_anim_set_repeat_count(&animation, LV_ANIM_REPEAT_INFINITE);
     lv_anim_set_path_cb(&animation, lv_anim_path_ease_in_out);
     lv_anim_start(&animation);
+}
+
+static void update_connection(void)
+{
+    if (!face_visible) {
+        return;
+    }
+    watch_face_layout_set_connected(&face_layout, ble_connected);
 }
 
 static lv_color_t foreground_color(void)
@@ -449,6 +458,7 @@ static void wake_display_locked(uint32_t timeout_ms)
             update_battery(NULL);
         }
         update_weather();
+        update_connection();
         update_agent();
         render_full_screen_locked();
     }
@@ -577,6 +587,7 @@ void watch_ui_show_face(void)
     update_clock(NULL);
     update_battery(NULL);
     update_weather();
+    update_connection();
     update_agent();
     clock_timer = lv_timer_create(update_clock, 1000, NULL);
     battery_timer = lv_timer_create(update_battery, 15000, NULL);
@@ -671,4 +682,14 @@ void watch_ui_apply_activity(uint8_t state, bool alert, bool sound)
     if (sound) {
         watch_sound_completion();
     }
+}
+
+void watch_ui_set_connected(bool connected)
+{
+    bsp_display_lock(0);
+    ble_connected = connected;
+    if (face_visible && display_awake) {
+        update_connection();
+    }
+    bsp_display_unlock();
 }
