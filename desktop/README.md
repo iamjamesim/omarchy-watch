@@ -73,7 +73,7 @@ From the repository root:
 The installer copies the daemon, commands, user service, and plugin into
 standard per-user locations, merges the lifecycle adapter into
 `~/.codex/hooks.json`, starts the service, and enables the right-side bar
-widget. Upgrades restart the user daemon and explicitly rescan the completed
+widget. Upgrades restart the user daemon and Omarchy shell after the completed
 panel installation, while preserving an existing bar placement. It does not
 modify Omarchy's system files and requires no root access.
 Codex requires review of newly installed user hooks; open `/hooks` in Codex and

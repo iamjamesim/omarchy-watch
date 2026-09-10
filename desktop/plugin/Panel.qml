@@ -28,8 +28,9 @@ Panel {
     || Quickshell.env("HOME") + "/.local/state") + "/omarchy-watch/status.json"
   readonly property string status: String(state.status || "stopped")
   readonly property bool found: ["found", "pairing", "paired", "syncing", "ready", "error", "disconnected", "bluetooth-off"].indexOf(status) >= 0
-  readonly property bool owned: Boolean(state.paired || state.watchOwned)
-  readonly property bool needsPairing: !owned && ["found", "pairing", "error"].indexOf(status) >= 0
+  readonly property bool needsPairing: !Boolean(state.paired)
+    && ["found", "pairing", "error"].indexOf(status) >= 0
+  readonly property bool owned: !needsPairing && Boolean(state.paired || state.watchOwned)
   readonly property bool ready: status === "ready"
   readonly property bool pending: String(state.desiredRevision || "") !== ""
     && String(state.desiredRevision || "") !== String(state.syncedRevision || "")

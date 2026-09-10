@@ -300,6 +300,10 @@ static const char *weather_condition_for_code(uint8_t code)
 
 static void update_weather(void)
 {
+    if (!face_visible) {
+        return;
+    }
+
     char temperature[12];
     char range[24];
     char location[32];

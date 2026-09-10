@@ -35,6 +35,53 @@ class PlainValueTests(unittest.TestCase):
 
 
 class ConnectionStateTests(unittest.TestCase):
+    def test_unpaired_watch_remains_visible_while_discovery_continues(self):
+        adapter_path = dbus.ObjectPath("/org/bluez/hci0")
+        device_path = dbus.ObjectPath("/org/bluez/hci0/dev_watch")
+        watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
+        watch.adapter_path = ""
+        watch.device_path = ""
+        watch.current_device_properties = {}
+        watch.pending_passkey = None
+        watch.state = {"status": "discovering", "address": "", "lastSynced": 0}
+        watch.managed_objects = mock.Mock(return_value={
+            adapter_path: {daemon.ADAPTER: {"Powered": True}},
+            device_path: {daemon.DEVICE: {
+                "Name": "Omarchy Watch",
+                "Address": "28:84:85:B4:F2:6A",
+                "Paired": False,
+                "Connected": False,
+                "RSSI": -42,
+            }},
+        })
+        watch.stop_discovery = mock.Mock()
+        watch.write_state = mock.Mock()
+
+        self.assertTrue(watch.refresh_devices())
+
+        watch.stop_discovery.assert_not_called()
+        watch.write_state.assert_called_once_with(
+            status="found", name="Omarchy Watch",
+            address="28:84:85:B4:F2:6A", paired=False, connected=False,
+            message="Ready to pair",
+        )
+
+    def test_losing_unpaired_candidate_restarts_discovery(self):
+        watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
+        watch.adapter_path = "/org/bluez/hci0"
+        watch.device_path = "/org/bluez/hci0/dev_watch"
+        watch.refresh_devices = mock.Mock(return_value=True)
+        watch.refresh_devices.side_effect = lambda: setattr(watch, "device_path", "") or True
+        watch.update_property_receivers = mock.Mock()
+        watch.start_discovery = mock.Mock()
+
+        with mock.patch.object(daemon.GLib, "idle_add") as idle_add:
+            watch.on_interfaces_removed(
+                "/org/bluez/hci0/dev_watch", [daemon.DEVICE]
+            )
+
+        idle_add.assert_called_once_with(watch.start_discovery)
+
     def test_in_progress_connection_remains_recoverable(self):
         class InProgress(dbus.DBusException):
             _dbus_error_name = "org.bluez.Error.InProgress"

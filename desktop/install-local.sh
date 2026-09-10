@@ -24,14 +24,15 @@ systemctl --user enable omarchy-watch.service
 systemctl --user restart omarchy-watch.service
 systemctl --user is-active --quiet omarchy-watch.service
 
-# File watching normally reloads user plugins. The explicit rescan provides a
-# completion boundary for installs and upgrades after every file is in place.
+# Refresh the registry after every file is in place, then use Omarchy's
+# supported shell restart to discard compiled QML from the previous install.
 omarchy-shell shell rescanPlugins >/dev/null
 plugins=$(omarchy-shell shell listPlugins)
 if ! jq -e --arg id "$plugin_id" \
   'any(.[]; .id == $id and .enabled == true)' <<<"$plugins" >/dev/null; then
   omarchy plugin enable "$plugin_id" --section right
 fi
+omarchy restart shell
 
 echo "Omarchy Watch panel reloaded."
 echo "Codex activity hooks installed. Review and trust them with /hooks in Codex."

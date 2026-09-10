@@ -938,8 +938,9 @@ class WatchDaemon:
         )
         self.device_path, properties = candidates[0]
         self.current_device_properties = properties
-        self.stop_discovery()
         paired = bool(properties.get("Paired"))
+        if paired:
+            self.stop_discovery()
         connected = bool(properties.get("Connected"))
         if not connected:
             self.identity_verified = False
@@ -984,7 +985,7 @@ class WatchDaemon:
         if not self.refresh_devices():
             self.update_property_receivers()
             return
-        if self.device_path:
+        if self.device_path and self.current_device_properties.get("Paired"):
             self.update_property_receivers()
             return
         adapter = self.bluez_object(self.adapter_path)
@@ -1059,10 +1060,13 @@ class WatchDaemon:
 
     def on_interfaces_removed(self, path, interfaces) -> None:
         removed = {str(interface) for interface in interfaces}
-        if ((DEVICE in removed and str(path) == self.device_path) or
-                (ADAPTER in removed and str(path) == self.adapter_path)):
-            self.refresh_devices()
+        device_removed = DEVICE in removed and str(path) == self.device_path
+        adapter_removed = ADAPTER in removed and str(path) == self.adapter_path
+        if device_removed or adapter_removed:
+            can_discover = self.refresh_devices()
             self.update_property_receivers()
+            if device_removed and can_discover and not self.device_path:
+                GLib.idle_add(self.start_discovery)
 
     def on_properties_changed(self, interface, changed, invalidated, path=None) -> None:
         if interface == ADAPTER:
