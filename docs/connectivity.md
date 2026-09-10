@@ -106,6 +106,11 @@ from the same characteristic returns the watch's acknowledgement revision. A
 snapshot restores visual state after reconnect, while the alert flag is sent
 only for a fresh, not-yet-delivered transition.
 
+The public `0.4.0` GATT database is the compatibility boundary. Firmware
+upgrades keep its services, characteristics, and permissions stable and evolve
+behavior through versioned packets on those characteristics. This avoids
+depending on platform-specific GATT cache invalidation during routine updates.
+
 ## Reconnect and boot contract
 
 The NimBLE bond, watch device ID, owner ID, effective profile, and latest
