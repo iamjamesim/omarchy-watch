@@ -150,10 +150,11 @@ encryption, identity-read, and disconnect cycle. A new link verifies identity
 once before using that direct path. If the laptop suspends, Bluetooth is
 disabled, or the devices move apart, supervision drops the link; the watch uses
 a 30-second fast-reconnect advertising window, then resumes low-duty
-advertising while the bridge continues reconnecting with bounded backoff.
-If BlueZ leaves a timed-out connection attempt pending, the bridge explicitly
-cancels that stale transport state before retrying so recovery does not remain
-stuck behind `InProgress`.
+advertising. The desktop registers the service UUID through BlueZ's
+`GattProfile1` API, asking the system Bluetooth service to connect whenever the
+watch is available. BlueZ connection and service-resolution property changes
+then drive synchronization directly. The desktop does not scan, poll, or issue
+its own connection requests during normal reconnection.
 
 ## Current vertical slice
 

@@ -37,11 +37,11 @@ disconnecting after every profile write. The watch requests a 200–250 ms
 connection interval with a peripheral latency of 3, allowing its radio to skip
 idle events and normally check in about once per second. The first transaction
 on a new link verifies device identity; later updates use the already verified
-link directly. Link loss, Bluetooth restoration, and laptop resume all trigger
-one bounded exponential reconnect path. BlueZ's connected and
-services-resolved properties drive synchronization directly, without a
-separate GATT polling timer. Pending profile work remains derived from the
-desired and acknowledged fingerprints throughout recovery.
+link directly. Link loss, Bluetooth restoration, and laptop resume are handled
+by BlueZ's native client-profile auto-connect behavior. Connected and
+services-resolved properties drive synchronization directly, without
+application discovery or reconnect timers. Pending profile work remains
+derived from the desired and acknowledged fingerprints throughout recovery.
 
 The bundled endpoint is Open-Meteo's non-commercial free API. Commercial
 derivatives must use an appropriate Open-Meteo plan or replace the provider.

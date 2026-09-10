@@ -31,6 +31,8 @@ PROPERTIES = "org.freedesktop.DBus.Properties"
 ADAPTER = "org.bluez.Adapter1"
 DEVICE = "org.bluez.Device1"
 GATT_CHARACTERISTIC = "org.bluez.GattCharacteristic1"
+GATT_MANAGER = "org.bluez.GattManager1"
+GATT_PROFILE = "org.bluez.GattProfile1"
 AGENT_MANAGER = "org.bluez.AgentManager1"
 AGENT = "org.bluez.Agent1"
 
@@ -39,6 +41,8 @@ CONTROL_UUID = "7f510002-1b15-4f0d-b7a5-4cf3a2c98ee1"
 IDENTITY_UUID = "7f510003-1b15-4f0d-b7a5-4cf3a2c98ee1"
 ACTIVITY_UUID = "7f510004-1b15-4f0d-b7a5-4cf3a2c98ee1"
 AGENT_PATH = "/io/github/omarchy/watch/agent"
+GATT_APPLICATION_PATH = "/io/github/omarchy/watch/gatt"
+GATT_PROFILE_PATH = f"{GATT_APPLICATION_PATH}/profile0"
 PROTOCOL_VERSION = 3
 PAIRING_TIMEOUT_SECONDS = 20
 PAIRING_CLEANUP_MILLISECONDS = 750
@@ -47,8 +51,6 @@ WEATHER_MAX_AGE_SECONDS = 6 * 60 * 60
 DISPLAY_PREVIEW_SECONDS = 30
 CONTEXT_RECONCILE_SECONDS = 60
 CONTEXT_DEBOUNCE_MILLISECONDS = 200
-RECONNECT_INITIAL_SECONDS = 2
-RECONNECT_MAX_SECONDS = 5 * 60
 MIN_BRIGHTNESS = 20
 MAX_BRIGHTNESS = 100
 DEFAULT_BRIGHTNESS = 50
@@ -441,6 +443,61 @@ class PairingAgent(dbus.service.Object):
             self.daemon.fail("Pairing was cancelled")
 
 
+class WatchGattProfile(dbus.service.Object):
+    """BlueZ client profile requesting native auto-connect for our service."""
+
+    def __init__(self, daemon: "WatchDaemon"):
+        self.daemon = daemon
+        super().__init__(daemon.bus, GATT_PROFILE_PATH)
+
+    @staticmethod
+    def properties() -> dict:
+        return {
+            "UUIDs": dbus.Array([SERVICE_UUID], signature="s"),
+        }
+
+    @dbus.service.method(GATT_PROFILE, in_signature="", out_signature="")
+    def Release(self):
+        GLib.idle_add(self.daemon.on_gatt_profile_released)
+
+    @dbus.service.method(PROPERTIES, in_signature="ss", out_signature="v")
+    def Get(self, interface, name):
+        if interface != GATT_PROFILE or name not in self.properties():
+            raise dbus.DBusException(
+                f"Unknown property {interface}.{name}",
+                name="org.freedesktop.DBus.Error.UnknownProperty",
+            )
+        return self.properties()[name]
+
+    @dbus.service.method(PROPERTIES, in_signature="s", out_signature="a{sv}")
+    def GetAll(self, interface):
+        return self.properties() if interface == GATT_PROFILE else {}
+
+    @dbus.service.method(PROPERTIES, in_signature="ssv", out_signature="")
+    def Set(self, interface, name, value):
+        del value
+        raise dbus.DBusException(
+            f"Property {interface}.{name} is read-only",
+            name="org.freedesktop.DBus.Error.PropertyReadOnly",
+        )
+
+
+class WatchGattApplication(dbus.service.Object):
+    def __init__(self, daemon: "WatchDaemon"):
+        self.profile = WatchGattProfile(daemon)
+        super().__init__(daemon.bus, GATT_APPLICATION_PATH)
+
+    @dbus.service.method(
+        OBJECT_MANAGER, in_signature="", out_signature="a{oa{sa{sv}}}"
+    )
+    def GetManagedObjects(self):
+        return {
+            dbus.ObjectPath(GATT_PROFILE_PATH): {
+                GATT_PROFILE: self.profile.properties(),
+            },
+        }
+
+
 class WatchDaemon:
     def __init__(self):
         dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
@@ -458,10 +515,8 @@ class WatchDaemon:
         self.pair_timeout_id = 0
         self.ignore_agent_cancel_until = 0.0
         self.connect_inflight = False
-        self.transport_reset_inflight = False
-        self.reconnect_source = 0
-        self.reconnect_not_before = 0.0
-        self.reconnect_delay = RECONNECT_INITIAL_SECONDS
+        self.gatt_registration_inflight = False
+        self.gatt_registered_adapter = ""
         self.write_inflight = False
         self.activity_dirty = True
         self.activity_inflight_revision = 0
@@ -483,6 +538,7 @@ class WatchDaemon:
         self.inflight_theme = ""
         self.inflight_was_forced = False
         self.agent = PairingAgent(self)
+        self.gatt_application = WatchGattApplication(self)
 
         self.runtime_dir = xdg_path("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
         self.state_dir = xdg_path("XDG_STATE_HOME", ".local/state") / "omarchy-watch"
@@ -657,69 +713,51 @@ class WatchDaemon:
     def sync_needed(self) -> bool:
         return self.force_sync_requested or self.sync_pending()
 
-    def reconnect_ready(self) -> bool:
-        return time.monotonic() >= self.reconnect_not_before
+    def on_gatt_profile_released(self) -> bool:
+        self.gatt_registration_inflight = False
+        self.gatt_registered_adapter = ""
+        return False
 
-    def reset_reconnect_backoff(self) -> None:
-        if self.reconnect_source:
-            GLib.source_remove(self.reconnect_source)
-            self.reconnect_source = 0
-        self.reconnect_not_before = 0.0
-        self.reconnect_delay = RECONNECT_INITIAL_SECONDS
-
-    def schedule_reconnect(self) -> None:
-        if not self.state.get("paired") or self.reconnect_source:
+    def ensure_gatt_profile_registered(self) -> None:
+        if (not self.adapter_path or self.gatt_registration_inflight or
+                self.gatt_registered_adapter == self.adapter_path):
             return
-        delay = self.reconnect_delay
-        self.reconnect_not_before = time.monotonic() + delay
-        self.reconnect_delay = min(delay * 2, RECONNECT_MAX_SECONDS)
-        self.reconnect_source = GLib.timeout_add_seconds(
-            delay, self.run_scheduled_connection_retry
-        )
-
-    def reset_transport_and_reconnect(self) -> None:
-        """Cancel stale BlueZ state before retrying a paired connection."""
-        if self.transport_reset_inflight:
-            return
-        if not self.device_path:
-            self.schedule_reconnect()
-            return
-        self.transport_reset_inflight = True
+        adapter_path = self.adapter_path
+        self.gatt_registration_inflight = True
         try:
-            dbus.Interface(
-                self.bluez_object(self.device_path), DEVICE
-            ).Disconnect(
-                reply_handler=self.on_transport_reset,
-                error_handler=self.on_transport_reset_error,
-                timeout=10,
+            manager = dbus.Interface(
+                self.bluez_object(adapter_path), GATT_MANAGER
+            )
+            manager.RegisterApplication(
+                GATT_APPLICATION_PATH,
+                dbus.Dictionary({}, signature="sv"),
+                reply_handler=lambda: self.on_gatt_profile_registered(adapter_path),
+                error_handler=lambda error: self.on_gatt_profile_error(
+                    adapter_path, error
+                ),
             )
         except dbus.DBusException as error:
-            self.on_transport_reset_error(error)
+            self.on_gatt_profile_error(adapter_path, error)
 
-    def on_transport_reset(self) -> None:
-        self.transport_reset_inflight = False
-        self.schedule_reconnect()
+    def on_gatt_profile_registered(self, adapter_path: str) -> None:
+        self.gatt_registration_inflight = False
+        self.gatt_registered_adapter = adapter_path
+        self.log("Registered BlueZ auto-connect profile")
 
-    def on_transport_reset_error(self, error) -> None:
-        self.transport_reset_inflight = False
+    def on_gatt_profile_error(self, adapter_path: str, error) -> None:
+        self.gatt_registration_inflight = False
         name = error.get_dbus_name() if isinstance(error, dbus.DBusException) else ""
-        if name not in {
-            "org.bluez.Error.NotConnected",
-            "org.bluez.Error.DoesNotExist",
-        }:
-            detail = (
-                error.get_dbus_message()
-                if isinstance(error, dbus.DBusException) else str(error)
-            )
-            self.log(f"Resetting Bluetooth transport returned {name or 'unknown'}: {detail}")
-        self.schedule_reconnect()
-
-    def run_scheduled_connection_retry(self) -> bool:
-        self.reconnect_source = 0
-        self.reconnect_not_before = 0.0
-        if self.state.get("paired"):
-            self.ensure_connection()
-        return False
+        if name == "org.bluez.Error.AlreadyExists":
+            self.gatt_registered_adapter = adapter_path
+            return
+        detail = (
+            error.get_dbus_message()
+            if isinstance(error, dbus.DBusException) else str(error)
+        )
+        self.log(
+            f"BlueZ auto-connect profile registration failed with "
+            f"{name or 'unknown'}: {detail}"
+        )
 
     def refresh_desired_profile(self, preview: bool = False) -> bool:
         fingerprint = self.profile_fingerprint()
@@ -729,8 +767,9 @@ class WatchDaemon:
             self.preview_until = time.monotonic() + DISPLAY_PREVIEW_SECONDS
         if changed:
             self.write_state()
-        if self.sync_pending() and self.state.get("paired") and self.pending_passkey is None:
-            self.ensure_connection()
+        if (self.sync_pending() and self.state.get("paired") and
+                self.state.get("connected") and self.pending_passkey is None):
+            self.ensure_connection("profile update")
         return changed
 
     def save_settings(self) -> None:
@@ -873,8 +912,7 @@ class WatchDaemon:
 
     def on_prepare_for_sleep(self, sleeping) -> None:
         if not bool(sleeping):
-            self.reset_reconnect_backoff()
-            self.schedule_reconnect()
+            self.ensure_gatt_profile_registered()
             self.schedule_context_check()
             self.refresh_effective_context()
 
@@ -1003,12 +1041,18 @@ class WatchDaemon:
             status = "error"
             message = self.state.get("message", "Pairing failed")
         else:
-            status = "ready" if paired and self.state.get("lastSynced", 0) else "paired" if paired else "found"
+            status = (
+                "ready" if paired and connected and self.state.get("lastSynced", 0)
+                else "paired" if paired and connected
+                else "disconnected" if paired
+                else "found"
+            )
             message = (
                 "Ready to pair" if not paired else
                 "Changes waiting to sync" if status == "ready" and self.sync_pending() else
                 "Up to date" if status == "ready" else
-                "Connected" if connected else "Paired"
+                "Connected" if connected else
+                "Waiting for watch to reconnect"
             )
         self.write_state(
             status=status,
@@ -1020,20 +1064,18 @@ class WatchDaemon:
         )
         if paired:
             if connected:
-                if properties.get("ServicesResolved") and self.reconnect_ready():
+                if properties.get("ServicesResolved"):
                     if self.sync_needed():
                         self.sync_connected_profile()
                     elif self.activity_dirty:
                         self.sync_connected_activity()
-            elif (not self.connect_inflight and
-                  self.pending_passkey is None and self.reconnect_ready()):
-                GLib.idle_add(self.ensure_connection)
         return True
 
     def start_discovery(self) -> None:
         if not self.refresh_devices():
             self.update_property_receivers()
             return
+        self.ensure_gatt_profile_registered()
         if self.device_path and self.current_device_properties.get("Paired"):
             self.update_property_receivers()
             return
@@ -1124,7 +1166,6 @@ class WatchDaemon:
             if "Powered" not in adapter_changes:
                 return
             if bool(adapter_changes["Powered"]):
-                self.reset_reconnect_backoff()
                 GLib.idle_add(self.start_discovery)
             else:
                 self.write_state(
@@ -1137,20 +1178,21 @@ class WatchDaemon:
         device_path = str(path)
         if device_path == self.device_path:
             device_changes = plain(changed)
+            for property_name in ("Connected", "ServicesResolved"):
+                if property_name in device_changes:
+                    self.log(
+                        f"BlueZ {property_name}="
+                        f"{str(bool(device_changes[property_name])).lower()}"
+                    )
             if "Connected" in device_changes and not device_changes["Connected"]:
                 self.identity_verified = False
                 self.activity_dirty = True
                 self.activity_notifications_started = False
-                if self.state.get("connected"):
-                    self.schedule_reconnect()
             connection_keys = {
                 "Connected", "Paired", "ServicesResolved", "Trusted",
                 "UUIDs", "Name", "Alias",
             }
             connection_change = bool(connection_keys.intersection(device_changes))
-            if (device_changes.get("Connected") or
-                    device_changes.get("ServicesResolved")):
-                self.reset_reconnect_backoff()
             if not connection_change:
                 return
             self.refresh_devices()
@@ -1167,13 +1209,13 @@ class WatchDaemon:
             )
             return
         self.connect_inflight = False
-        self.transport_reset_inflight = False
         self.write_inflight = False
         self.identity_verified = False
         self.activity_dirty = True
         self.activity_notifications_started = False
         self.discovery_active = False
-        self.reset_reconnect_backoff()
+        self.gatt_registration_inflight = False
+        self.gatt_registered_adapter = ""
         self.root = self.bluez_object("/")
         self.objects = dbus.Interface(self.root, OBJECT_MANAGER)
         try:
@@ -1263,11 +1305,11 @@ class WatchDaemon:
         self.cancel_pair_timeout()
         self.pending_passkey = None
         self.force_sync_requested = True
-        self.reset_reconnect_backoff()
+        self.ensure_gatt_profile_registered()
         self.write_state(status="paired", paired=True, message="Securing ownership")
         properties = dbus.Interface(self.bluez_object(self.device_path), PROPERTIES)
         properties.Set(DEVICE, "Trusted", dbus.Boolean(True))
-        self.ensure_connection()
+        self.ensure_connection("pairing")
 
     def on_pair_error(self, attempt: int, error) -> None:
         if attempt != self.pair_attempt:
@@ -1287,9 +1329,8 @@ class WatchDaemon:
             return
         self.fail(f"Pairing failed: {detail}")
 
-    def ensure_connection(self) -> bool:
-        if (not self.device_path or self.connect_inflight or
-                not self.reconnect_ready()):
+    def ensure_connection(self, reason: str = "unspecified") -> bool:
+        if not self.device_path or self.connect_inflight:
             return False
         if self.write_inflight:
             return False
@@ -1299,20 +1340,23 @@ class WatchDaemon:
             return False
         self.connect_inflight = True
         self.identity_verified = False
+        self.log(f"Starting explicit connection attempt ({reason})")
         self.write_state(status="syncing", message="Connecting to watch")
         device = self.bluez_object(self.device_path)
-        dbus.Interface(device, DEVICE).Connect(
-            reply_handler=self.on_connected,
-            error_handler=self.on_connect_error,
-            timeout=30,
-        )
+        try:
+            dbus.Interface(device, DEVICE).Connect(
+                reply_handler=self.on_connected,
+                error_handler=self.on_connect_error,
+                timeout=30,
+            )
+        except dbus.DBusException as error:
+            self.on_connect_error(error)
         return False
 
     def on_connected(self) -> None:
+        self.log("Explicit connection request completed")
         self.connect_inflight = False
-        self.transport_reset_inflight = False
         self.identity_verified = False
-        self.reset_reconnect_backoff()
         self.refresh_devices()
 
     def on_connect_error(self, error) -> None:
@@ -1321,12 +1365,10 @@ class WatchDaemon:
         detail = error.get_dbus_message() if isinstance(error, dbus.DBusException) else str(error)
         self.log(f"Connection attempt failed with {name or 'unknown'}: {detail}")
         if name == "org.bluez.Error.AlreadyConnected":
-            self.reset_reconnect_backoff()
             self.refresh_devices()
             return
         if name == "org.bluez.Error.InProgress":
             self.write_state(status="syncing", message="Connecting to watch")
-            self.reset_transport_and_reconnect()
             return
         if self.handle_transport_error(error):
             return
@@ -1347,11 +1389,9 @@ class WatchDaemon:
             status = "bluetooth-off" if name == "org.bluez.Error.NotReady" else "disconnected"
             friendly = (
                 "Bluetooth is off" if status == "bluetooth-off" else
-                "Couldn't connect; retrying automatically"
+                "Waiting for watch to reconnect"
             )
             self.write_state(status=status, connected=False, message=friendly)
-            if status != "bluetooth-off":
-                self.reset_transport_and_reconnect()
             return True
         return False
 
@@ -1541,7 +1581,6 @@ class WatchDaemon:
         self.inflight_fingerprint = ""
         self.inflight_theme = ""
         self.inflight_was_forced = False
-        self.reset_reconnect_backoff()
         if self.sync_needed():
             self.sync_connected_profile()
         elif getattr(self, "activity_dirty", False):
@@ -1563,7 +1602,6 @@ class WatchDaemon:
         if self.write_inflight or not self.activity_dirty:
             return
         if not self.state.get("connected"):
-            self.ensure_connection()
             return
         activity_path = self.find_characteristic(ACTIVITY_UUID)
         if not activity_path:
@@ -1724,8 +1762,6 @@ class WatchDaemon:
             return
         if self.state.get("connected"):
             self.sync_connected_activity()
-        else:
-            self.ensure_connection()
 
     def cancel_pending_completion(self, source: str, session: str) -> None:
         key = AgentActivityLedger.key(source, session)
@@ -1780,8 +1816,7 @@ class WatchDaemon:
             self.pair(int(command.get("passkey", 0)))
         elif action == "sync":
             self.force_sync_requested = True
-            self.reset_reconnect_backoff()
-            self.ensure_connection()
+            self.ensure_connection("manual sync")
         elif action == "rescan":
             self.start_discovery()
         elif action == "brightness":

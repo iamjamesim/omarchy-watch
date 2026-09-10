@@ -82,17 +82,14 @@ class ConnectionStateTests(unittest.TestCase):
 
         idle_add.assert_called_once_with(watch.start_discovery)
 
-    def test_in_progress_connection_remains_recoverable(self):
+    def test_in_progress_manual_connection_is_left_to_bluez(self):
         class InProgress(dbus.DBusException):
             _dbus_error_name = "org.bluez.Error.InProgress"
 
         watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
         watch.connect_inflight = True
         watch.state = {"paired": True}
-        watch.reconnect_delay = daemon.RECONNECT_INITIAL_SECONDS
-        watch.reconnect_source = 0
         watch.write_state = mock.Mock()
-        watch.reset_transport_and_reconnect = mock.Mock()
 
         watch.on_connect_error(InProgress("Operation already in progress"))
 
@@ -100,48 +97,67 @@ class ConnectionStateTests(unittest.TestCase):
         watch.write_state.assert_called_once_with(
             status="syncing", message="Connecting to watch"
         )
-        watch.reset_transport_and_reconnect.assert_called_once_with()
 
-    def test_transport_reset_disconnects_before_reconnect(self):
-        watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
-        watch.transport_reset_inflight = False
-        watch.device_path = "/org/bluez/hci0/dev_watch"
-        watch.bluez_object = mock.Mock(return_value=mock.sentinel.device)
-        watch.schedule_reconnect = mock.Mock()
-        device = mock.Mock()
-
-        with mock.patch.object(daemon.dbus, "Interface", return_value=device):
-            watch.reset_transport_and_reconnect()
-
-        self.assertTrue(watch.transport_reset_inflight)
-        device.Disconnect.assert_called_once_with(
-            reply_handler=watch.on_transport_reset,
-            error_handler=watch.on_transport_reset_error,
-            timeout=10,
+    def test_gatt_profile_requests_native_autoconnect_for_watch_service(self):
+        self.assertEqual(
+            daemon.WatchGattProfile.properties(),
+            {"UUIDs": [daemon.SERVICE_UUID]},
         )
-        watch.schedule_reconnect.assert_not_called()
 
-        watch.on_transport_reset()
-        self.assertFalse(watch.transport_reset_inflight)
-        watch.schedule_reconnect.assert_called_once_with()
-
-    def test_reconnect_schedule_is_idempotent(self):
+    def test_gatt_profile_registration_uses_adapter_gatt_manager(self):
         watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
-        watch.state = {"paired": True}
-        watch.reconnect_delay = daemon.RECONNECT_INITIAL_SECONDS
-        watch.reconnect_source = 0
+        watch.adapter_path = "/org/bluez/hci0"
+        watch.gatt_registration_inflight = False
+        watch.gatt_registered_adapter = ""
+        watch.bluez_object = mock.Mock(return_value=mock.sentinel.adapter)
+        manager = mock.Mock()
 
-        with mock.patch.object(
-            daemon.GLib, "timeout_add_seconds", return_value=42
-        ) as timeout:
-            watch.schedule_reconnect()
-            watch.schedule_reconnect()
+        with mock.patch.object(daemon.dbus, "Interface", return_value=manager):
+            watch.ensure_gatt_profile_registered()
 
-        timeout.assert_called_once_with(
-            daemon.RECONNECT_INITIAL_SECONDS,
-            watch.run_scheduled_connection_retry,
+        manager.RegisterApplication.assert_called_once()
+        args, kwargs = manager.RegisterApplication.call_args
+        self.assertEqual(args[0], daemon.GATT_APPLICATION_PATH)
+        self.assertEqual(dict(args[1]), {})
+        self.assertTrue(watch.gatt_registration_inflight)
+        kwargs["reply_handler"]()
+        self.assertEqual(watch.gatt_registered_adapter, watch.adapter_path)
+
+    def test_synced_but_disconnected_watch_is_not_reported_ready(self):
+        adapter_path = dbus.ObjectPath("/org/bluez/hci0")
+        device_path = dbus.ObjectPath("/org/bluez/hci0/dev_watch")
+        watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
+        watch.adapter_path = ""
+        watch.device_path = ""
+        watch.current_device_properties = {}
+        watch.pending_passkey = None
+        watch.identity_verified = True
+        watch.state = {
+            "status": "ready", "address": "28:84:85:B4:F2:6A",
+            "lastSynced": 123, "connected": True,
+        }
+        watch.managed_objects = mock.Mock(return_value={
+            adapter_path: {daemon.ADAPTER: {"Powered": True}},
+            device_path: {daemon.DEVICE: {
+                "Name": "Omarchy Watch",
+                "Address": "28:84:85:B4:F2:6A",
+                "Paired": True,
+                "Connected": False,
+                "ServicesResolved": False,
+            }},
+        })
+        watch.stop_discovery = mock.Mock()
+        watch.write_state = mock.Mock()
+
+        with mock.patch.object(daemon.GLib, "idle_add") as idle_add:
+            self.assertTrue(watch.refresh_devices())
+
+        watch.write_state.assert_called_once_with(
+            status="disconnected", name="Omarchy Watch",
+            address="28:84:85:B4:F2:6A", paired=True, connected=False,
+            message="Waiting for watch to reconnect",
         )
-        self.assertEqual(watch.reconnect_delay, daemon.RECONNECT_INITIAL_SECONDS * 2)
+        idle_add.assert_not_called()
 
     def test_unrelated_bluez_device_changes_are_ignored(self):
         watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
@@ -155,32 +171,37 @@ class ConnectionStateTests(unittest.TestCase):
 
         watch.refresh_devices.assert_not_called()
 
-    def test_idle_watch_advertisements_do_not_refresh_device_tree(self):
+    def test_watch_advertisement_is_left_to_native_autoconnect(self):
         watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
         watch.device_path = "/org/bluez/hci0/dev_watch"
+        watch.state = {"paired": True, "connected": False}
+        watch.connect_inflight = False
         watch.refresh_devices = mock.Mock()
 
-        watch.on_properties_changed(
-            daemon.DEVICE, {"RSSI": dbus.Int16(-60)}, [], path=watch.device_path
-        )
+        with mock.patch.object(daemon.GLib, "idle_add") as idle_add:
+            watch.on_properties_changed(
+                daemon.DEVICE, {"RSSI": dbus.Int16(-60)}, [],
+                path=watch.device_path,
+            )
 
         watch.refresh_devices.assert_not_called()
+        idle_add.assert_not_called()
 
-    def test_link_loss_waits_before_reconnecting(self):
+    def test_link_loss_is_left_to_native_autoconnect(self):
         watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
         watch.device_path = "/org/bluez/hci0/dev_watch"
         watch.state = {"connected": True}
         watch.identity_verified = True
-        watch.schedule_reconnect = mock.Mock()
         watch.refresh_devices = mock.Mock()
 
-        watch.on_properties_changed(
-            daemon.DEVICE, {"Connected": dbus.Boolean(False)}, [],
-            path=watch.device_path,
-        )
+        with mock.patch.object(daemon.GLib, "idle_add") as idle_add:
+            watch.on_properties_changed(
+                daemon.DEVICE, {"Connected": dbus.Boolean(False)}, [],
+                path=watch.device_path,
+            )
 
         self.assertFalse(watch.identity_verified)
-        watch.schedule_reconnect.assert_called_once_with()
+        idle_add.assert_not_called()
         watch.refresh_devices.assert_called_once_with()
 
     def test_bluez_property_receivers_are_scoped_to_adapter_and_watch(self):
@@ -237,29 +258,6 @@ class RevisionStateTests(unittest.TestCase):
 
             self.assertNotEqual(first, daemon.WatchDaemon.file_signature(path))
 
-    def test_failed_connection_uses_bounded_retry_backoff(self):
-        watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
-        watch.state = {"paired": True}
-        watch.desired_fingerprint = "new"
-        watch.synced_fingerprint = "old"
-        watch.force_sync_requested = False
-        watch.reconnect_delay = daemon.RECONNECT_INITIAL_SECONDS
-        watch.reconnect_source = 0
-
-        with mock.patch.object(
-            daemon.GLib, "timeout_add_seconds", return_value=42
-        ) as timeout:
-            watch.schedule_reconnect()
-
-        self.assertEqual(watch.reconnect_source, 42)
-        self.assertEqual(
-            watch.reconnect_delay, daemon.RECONNECT_INITIAL_SECONDS * 2
-        )
-        timeout.assert_called_once_with(
-            daemon.RECONNECT_INITIAL_SECONDS,
-            watch.run_scheduled_connection_retry,
-        )
-
     def test_network_recovery_refreshes_weather(self):
         watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
         watch.refresh_effective_context = mock.Mock()
@@ -286,7 +284,6 @@ class RevisionStateTests(unittest.TestCase):
         watch.write_state = mock.Mock()
         watch.save_sync_state = mock.Mock()
         watch.sync_connected_profile = mock.Mock()
-        watch.reset_reconnect_backoff = mock.Mock()
 
         watch.on_profile_written()
 
@@ -309,7 +306,6 @@ class RevisionStateTests(unittest.TestCase):
         watch.write_state = mock.Mock()
         watch.save_sync_state = mock.Mock()
         watch.sync_connected_profile = mock.Mock()
-        watch.reset_reconnect_backoff = mock.Mock()
 
         watch.on_profile_written()
 
