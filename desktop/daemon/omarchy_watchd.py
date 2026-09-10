@@ -455,6 +455,7 @@ class WatchDaemon:
         self.pair_timeout_id = 0
         self.ignore_agent_cancel_until = 0.0
         self.connect_inflight = False
+        self.transport_reset_inflight = False
         self.reconnect_source = 0
         self.reconnect_not_before = 0.0
         self.reconnect_delay = RECONNECT_INITIAL_SECONDS
@@ -652,16 +653,51 @@ class WatchDaemon:
         self.reconnect_delay = RECONNECT_INITIAL_SECONDS
 
     def schedule_reconnect(self) -> None:
-        if not self.state.get("paired"):
+        if not self.state.get("paired") or self.reconnect_source:
             return
         delay = self.reconnect_delay
         self.reconnect_not_before = time.monotonic() + delay
         self.reconnect_delay = min(delay * 2, RECONNECT_MAX_SECONDS)
-        if self.reconnect_source:
-            GLib.source_remove(self.reconnect_source)
         self.reconnect_source = GLib.timeout_add_seconds(
             delay, self.run_scheduled_connection_retry
         )
+
+    def reset_transport_and_reconnect(self) -> None:
+        """Cancel stale BlueZ state before retrying a paired connection."""
+        if self.transport_reset_inflight:
+            return
+        if not self.device_path:
+            self.schedule_reconnect()
+            return
+        self.transport_reset_inflight = True
+        try:
+            dbus.Interface(
+                self.bluez_object(self.device_path), DEVICE
+            ).Disconnect(
+                reply_handler=self.on_transport_reset,
+                error_handler=self.on_transport_reset_error,
+                timeout=10,
+            )
+        except dbus.DBusException as error:
+            self.on_transport_reset_error(error)
+
+    def on_transport_reset(self) -> None:
+        self.transport_reset_inflight = False
+        self.schedule_reconnect()
+
+    def on_transport_reset_error(self, error) -> None:
+        self.transport_reset_inflight = False
+        name = error.get_dbus_name() if isinstance(error, dbus.DBusException) else ""
+        if name not in {
+            "org.bluez.Error.NotConnected",
+            "org.bluez.Error.DoesNotExist",
+        }:
+            detail = (
+                error.get_dbus_message()
+                if isinstance(error, dbus.DBusException) else str(error)
+            )
+            self.log(f"Resetting Bluetooth transport returned {name or 'unknown'}: {detail}")
+        self.schedule_reconnect()
 
     def run_scheduled_connection_retry(self) -> bool:
         self.reconnect_source = 0
@@ -1115,6 +1151,7 @@ class WatchDaemon:
             )
             return
         self.connect_inflight = False
+        self.transport_reset_inflight = False
         self.write_inflight = False
         self.identity_verified = False
         self.activity_dirty = True
@@ -1257,6 +1294,7 @@ class WatchDaemon:
 
     def on_connected(self) -> None:
         self.connect_inflight = False
+        self.transport_reset_inflight = False
         self.identity_verified = False
         self.reset_reconnect_backoff()
         self.refresh_devices()
@@ -1272,7 +1310,7 @@ class WatchDaemon:
             return
         if name == "org.bluez.Error.InProgress":
             self.write_state(status="syncing", message="Connecting to watch")
-            self.schedule_reconnect()
+            self.reset_transport_and_reconnect()
             return
         if self.handle_transport_error(error):
             return
@@ -1297,7 +1335,7 @@ class WatchDaemon:
             )
             self.write_state(status=status, connected=False, message=friendly)
             if status != "bluetooth-off":
-                self.schedule_reconnect()
+                self.reset_transport_and_reconnect()
             return True
         return False
 

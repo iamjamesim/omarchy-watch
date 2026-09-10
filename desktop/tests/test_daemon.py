@@ -92,20 +92,56 @@ class ConnectionStateTests(unittest.TestCase):
         watch.reconnect_delay = daemon.RECONNECT_INITIAL_SECONDS
         watch.reconnect_source = 0
         watch.write_state = mock.Mock()
+        watch.reset_transport_and_reconnect = mock.Mock()
 
-        with mock.patch.object(
-            daemon.GLib, "timeout_add_seconds", return_value=42
-        ) as timeout:
-            watch.on_connect_error(InProgress("Operation already in progress"))
+        watch.on_connect_error(InProgress("Operation already in progress"))
 
         self.assertFalse(watch.connect_inflight)
         watch.write_state.assert_called_once_with(
             status="syncing", message="Connecting to watch"
         )
+        watch.reset_transport_and_reconnect.assert_called_once_with()
+
+    def test_transport_reset_disconnects_before_reconnect(self):
+        watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
+        watch.transport_reset_inflight = False
+        watch.device_path = "/org/bluez/hci0/dev_watch"
+        watch.bluez_object = mock.Mock(return_value=mock.sentinel.device)
+        watch.schedule_reconnect = mock.Mock()
+        device = mock.Mock()
+
+        with mock.patch.object(daemon.dbus, "Interface", return_value=device):
+            watch.reset_transport_and_reconnect()
+
+        self.assertTrue(watch.transport_reset_inflight)
+        device.Disconnect.assert_called_once_with(
+            reply_handler=watch.on_transport_reset,
+            error_handler=watch.on_transport_reset_error,
+            timeout=10,
+        )
+        watch.schedule_reconnect.assert_not_called()
+
+        watch.on_transport_reset()
+        self.assertFalse(watch.transport_reset_inflight)
+        watch.schedule_reconnect.assert_called_once_with()
+
+    def test_reconnect_schedule_is_idempotent(self):
+        watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
+        watch.state = {"paired": True}
+        watch.reconnect_delay = daemon.RECONNECT_INITIAL_SECONDS
+        watch.reconnect_source = 0
+
+        with mock.patch.object(
+            daemon.GLib, "timeout_add_seconds", return_value=42
+        ) as timeout:
+            watch.schedule_reconnect()
+            watch.schedule_reconnect()
+
         timeout.assert_called_once_with(
             daemon.RECONNECT_INITIAL_SECONDS,
             watch.run_scheduled_connection_retry,
         )
+        self.assertEqual(watch.reconnect_delay, daemon.RECONNECT_INITIAL_SECONDS * 2)
 
     def test_unrelated_bluez_device_changes_are_ignored(self):
         watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)

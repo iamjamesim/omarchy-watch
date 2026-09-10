@@ -149,6 +149,9 @@ once before using that direct path. If the laptop suspends, Bluetooth is
 disabled, or the devices move apart, supervision drops the link; the watch uses
 a 30-second fast-reconnect advertising window, then resumes low-duty
 advertising while the bridge continues reconnecting with bounded backoff.
+If BlueZ leaves a timed-out connection attempt pending, the bridge explicitly
+cancels that stale transport state before retrying so recovery does not remain
+stuck behind `InProgress`.
 
 ## Current vertical slice
 
