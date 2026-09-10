@@ -75,6 +75,8 @@ void watch_face_layout_create(lv_obj_t *screen,
     lv_obj_clear_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
 
     layout->date = make_label(screen, "Tue 8 Sep", &jetbrains_mono_27);
+    lv_obj_set_width(layout->date, 195);
+    lv_label_set_long_mode(layout->date, LV_LABEL_LONG_CLIP);
     lv_obj_set_style_text_letter_space(layout->date, 1, 0);
     lv_obj_set_pos(layout->date, SAFE_INLINE, 60);
 
