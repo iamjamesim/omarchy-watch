@@ -1,0 +1,40 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  firmware:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build release bundle with ESP-IDF 5.5.5
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.5
+          target: esp32s3
+          path: firmware
+          command: bash ../tools/package-release.sh
+      - name: Verify release bundle
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          cd dist
+          sha256sum -c "omarchy-watch-v${version}-flash.tar.gz.sha256"
+      - name: Create draft GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          notes=".github/release-notes/${GITHUB_REF_NAME}.md"
+          test -f "$notes"
+          gh release create "$GITHUB_REF_NAME" \
+            --draft \
+            --verify-tag \
+            --title "Omarchy Watch $GITHUB_REF_NAME" \
+            --notes-file "$notes" \
+            dist/*.tar.gz \
+            dist/*.tar.gz.sha256

@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+repo_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+firmware_dir=$repo_dir/firmware
+output_dir=${1:-$repo_dir/dist}
+version=$(python3 -c \
+  'import json, sys; print(json.load(open(sys.argv[1]))["version"])' \
+  "$repo_dir/manifest.json")
+firmware_version=$(sed -nE 's/set\(PROJECT_VER "([^"]+)"\)/\1/p' "$firmware_dir/CMakeLists.txt")
+package_name=omarchy-watch-v${version}-flash
+package_dir=$output_dir/$package_name
+archive=$output_dir/$package_name.tar.gz
+
+command -v idf.py >/dev/null || {
+  echo "Activate ESP-IDF 5.5.x before packaging the release." >&2
+  exit 1
+}
+
+if [[ $version != "$firmware_version" ]]; then
+  echo "Manifest version $version does not match firmware version $firmware_version." >&2
+  exit 1
+fi
+
+if [[ -e $package_dir || -e $archive ]]; then
+  echo "Release output already exists: $package_name" >&2
+  exit 1
+fi
+
+(cd "$firmware_dir" && idf.py build)
+
+mkdir -p "$package_dir"
+install -m 0644 "$firmware_dir/build/bootloader/bootloader.bin" "$package_dir/bootloader.bin"
+install -m 0644 "$firmware_dir/build/partition_table/partition-table.bin" "$package_dir/partition-table.bin"
+install -m 0644 "$firmware_dir/build/omarchy_watch.bin" "$package_dir/omarchy_watch.bin"
+install -m 0755 "$firmware_dir/release/flash.sh" "$package_dir/flash.sh"
+sed "s/@VERSION@/$version/g" "$firmware_dir/release/README.txt" >"$package_dir/README.txt"
+
+(cd "$package_dir" && sha256sum bootloader.bin partition-table.bin omarchy_watch.bin flash.sh README.txt >SHA256SUMS)
+(cd "$output_dir" && tar -czf "$archive" "$package_name")
+(cd "$output_dir" && sha256sum "$package_name.tar.gz" >"$package_name.tar.gz.sha256")
+
+echo "Created $archive"
+cat "$archive.sha256"

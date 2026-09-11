@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  desktop:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate manifest
+        run: |
+          jq -e '
+            .schemaVersion == 1
+            and (.id | type == "string" and length > 0)
+            and (.name | type == "string" and length > 0)
+            and (.version | type == "string" and length > 0)
+            and (.kinds | index("bar-widget") != null)
+            and (.entryPoints.barWidget == "desktop/plugin/BarWidget.qml")
+          ' manifest.json
+          test -f "$(jq -r '.entryPoints.barWidget' manifest.json)"
+          test "$(jq -r '.version' manifest.json)" = \
+            "$(sed -nE 's/set\(PROJECT_VER "([^"]+)"\)/\1/p' firmware/CMakeLists.txt)"
+      - name: Check scripts and Python
+        run: |
+          bash -n desktop/install-local.sh
+          bash -n desktop/uninstall-local.sh
+          bash -n firmware/release/flash.sh
+          bash -n tools/generate-fonts.sh
+          bash -n tools/lint-plugin.sh
+          bash -n tools/package-release.sh
+          bash -n tools/render-watchface.sh
+          bash -n tools/validate-plugin.sh
+          python3 -m py_compile \
+            desktop/daemon/omarchy_watchd.py \
+            desktop/install-codex-hooks.py \
+            desktop/bin/omarchy-watchctl \
+            desktop/bin/omarchy-watch-agent-hook
+      - name: Run desktop tests
+        run: python3 -m unittest discover -s desktop/tests
+
+  firmware:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build firmware with ESP-IDF 5.5.5
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.5
+          target: esp32s3
+          path: firmware

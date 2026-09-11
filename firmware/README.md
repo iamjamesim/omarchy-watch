@@ -60,6 +60,21 @@ host preview renderer compile that source, so layout changes have one source of
 truth. From the repository root, run `./tools/render-watchface.sh` after the
 first firmware configure/build; see `simulator/README.md` for details.
 
+## Prebuilt release bundle
+
+Tagged releases include the bootloader, partition table, and application as
+three separate binaries plus a `flash.sh` helper and SHA-256 checksums. Install
+Espressif's `esptool`, extract the bundle, and run:
+
+```bash
+./flash.sh /dev/ttyACM0
+```
+
+The separate writes intentionally leave the NVS partition at
+`0x9000`–`0xEFFF` untouched. Do not replace the bundle with a merged image for
+routine updates: gaps in a merged image are filled with `0xFF`, which would
+erase the watch's bond, owner identity, and cached preferences.
+
 ## Flash
 
 Connect the USB-C programming port, then flash without erasing so the BLE bond,
