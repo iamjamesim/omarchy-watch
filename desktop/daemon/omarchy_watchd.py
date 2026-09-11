@@ -46,7 +46,6 @@ GATT_PROFILE_PATH = f"{GATT_APPLICATION_PATH}/profile0"
 PROTOCOL_VERSION = 3
 PAIRING_TIMEOUT_SECONDS = 20
 PAIRING_CLEANUP_MILLISECONDS = 750
-PAIRING_DISCOVERY_MILLISECONDS = 1500
 PAIRING_RETRY_DELAY_MILLISECONDS = 5000
 PAIRING_RETRY_DISCOVERY_MILLISECONDS = 10000
 PAIRING_MAX_TRANSPORT_ATTEMPTS = 3
@@ -1028,11 +1027,25 @@ class WatchDaemon:
         if not candidates:
             self.device_path = ""
             self.current_device_properties = {}
-            self.write_state(
-                status="discovering", name="", address="", paired=False,
-                connected=False, watchOwned=False,
-                message="Looking for an Omarchy Watch",
-            )
+            if self.pending_passkey is not None:
+                # A retry scan may briefly lose BlueZ's temporary Device1.
+                # Keep the submitted passkey and pairing UI active while the
+                # transport reacquires the watch.
+                self.write_state(
+                    status="pairing", connected=False, watchOwned=False
+                )
+            elif self.state.get("status") == "error" and not self.state.get("paired"):
+                # BlueZ commonly drops an unpaired Device1 object after a
+                # failed transport attempt. Preserve the actionable pairing
+                # failure while discovery reacquires it instead of replacing
+                # the panel with an indefinite-looking search state.
+                self.write_state(connected=False, watchOwned=False)
+            else:
+                self.write_state(
+                    status="discovering", name="", address="", paired=False,
+                    connected=False, watchOwned=False,
+                    message="Looking for an Omarchy Watch",
+                )
             return True
 
         candidates.sort(
@@ -1042,7 +1055,8 @@ class WatchDaemon:
         self.device_path, properties = candidates[0]
         self.current_device_properties = properties
         paired = bool(properties.get("Paired"))
-        self.stop_discovery()
+        if paired:
+            self.stop_discovery()
         connected = bool(properties.get("Connected"))
         services_resolved = bool(properties.get("ServicesResolved"))
         if not connected:
@@ -1144,7 +1158,8 @@ class WatchDaemon:
             self.update_property_receivers()
             return
         self.ensure_gatt_profile_registered()
-        if self.device_path and not force:
+        if (self.device_path and self.current_device_properties.get("Paired")
+                and not force):
             self.update_property_receivers()
             return
         adapter = self.bluez_object(self.adapter_path)
@@ -1192,7 +1207,7 @@ class WatchDaemon:
     def schedule_discovery_restart(self) -> None:
         if self.discovery_restart_source or self.pending_passkey is not None:
             return
-        if self.device_path:
+        if self.device_path and self.current_device_properties.get("Paired"):
             return
         self.stop_discovery()
         self.discovery_restart_source = GLib.timeout_add(250, self.restart_discovery)
@@ -1356,7 +1371,10 @@ class WatchDaemon:
             }:
                 self.log(f"Pairing cleanup returned {error.get_dbus_name()}: {error.get_dbus_message()}")
 
-        GLib.timeout_add(PAIRING_CLEANUP_MILLISECONDS, self.prepare_pair, attempt)
+        # The initial Device1 is still live because discovery continued while
+        # the user entered the code. Pair it directly; rediscovery is only a
+        # recovery path after a real transport failure.
+        GLib.timeout_add(PAIRING_CLEANUP_MILLISECONDS, self.begin_pair, attempt)
 
     def prepare_pair(self, attempt: int) -> bool:
         if attempt != self.pair_attempt or self.pending_passkey is None:
@@ -1369,13 +1387,8 @@ class WatchDaemon:
         self.start_discovery(force=True)
         if attempt != self.pair_attempt or self.pending_passkey is None:
             return False
-        discovery_milliseconds = (
-            PAIRING_DISCOVERY_MILLISECONDS
-            if self.pair_transport_attempt == 1
-            else PAIRING_RETRY_DISCOVERY_MILLISECONDS
-        )
         GLib.timeout_add(
-            discovery_milliseconds, self.begin_pair, attempt
+            PAIRING_RETRY_DISCOVERY_MILLISECONDS, self.begin_pair, attempt
         )
         return False
 

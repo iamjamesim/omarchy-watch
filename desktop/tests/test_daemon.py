@@ -35,7 +35,59 @@ class PlainValueTests(unittest.TestCase):
 
 
 class ConnectionStateTests(unittest.TestCase):
-    def test_discovery_stops_after_unpaired_watch_is_found(self):
+    def test_active_pairing_survives_temporary_bluez_device_removal(self):
+        adapter_path = dbus.ObjectPath("/org/bluez/hci0")
+        watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
+        watch.adapter_path = "/org/bluez/hci0"
+        watch.device_path = "/org/bluez/hci0/dev_watch"
+        watch.current_device_properties = {"Paired": False}
+        watch.pending_passkey = 123456
+        watch.state = {
+            "status": "pairing",
+            "name": "Omarchy Watch",
+            "address": "28:84:85:B4:F2:6A",
+            "paired": False,
+            "message": "Retrying secure connection (2/3)",
+        }
+        watch.managed_objects = mock.Mock(return_value={
+            adapter_path: {daemon.ADAPTER: {"Powered": True}},
+        })
+        watch.write_state = mock.Mock()
+
+        self.assertTrue(watch.refresh_devices())
+
+        self.assertEqual(watch.device_path, "")
+        watch.write_state.assert_called_once_with(
+            status="pairing", connected=False, watchOwned=False
+        )
+
+    def test_unpaired_error_survives_temporary_bluez_device_removal(self):
+        adapter_path = dbus.ObjectPath("/org/bluez/hci0")
+        watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
+        watch.adapter_path = "/org/bluez/hci0"
+        watch.device_path = "/org/bluez/hci0/dev_watch"
+        watch.current_device_properties = {"Paired": False}
+        watch.pending_passkey = None
+        watch.state = {
+            "status": "error",
+            "name": "Omarchy Watch",
+            "address": "28:84:85:B4:F2:6A",
+            "paired": False,
+            "message": "Couldn't reach the watch. Keep it nearby and try again.",
+        }
+        watch.managed_objects = mock.Mock(return_value={
+            adapter_path: {daemon.ADAPTER: {"Powered": True}},
+        })
+        watch.write_state = mock.Mock()
+
+        self.assertTrue(watch.refresh_devices())
+
+        self.assertEqual(watch.device_path, "")
+        watch.write_state.assert_called_once_with(
+            connected=False, watchOwned=False
+        )
+
+    def test_unpaired_watch_remains_live_while_discovery_continues(self):
         adapter_path = dbus.ObjectPath("/org/bluez/hci0")
         device_path = dbus.ObjectPath("/org/bluez/hci0/dev_watch")
         watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
@@ -59,7 +111,7 @@ class ConnectionStateTests(unittest.TestCase):
 
         self.assertTrue(watch.refresh_devices())
 
-        watch.stop_discovery.assert_called_once_with()
+        watch.stop_discovery.assert_not_called()
         watch.write_state.assert_called_once_with(
             status="found", name="Omarchy Watch",
             address="28:84:85:B4:F2:6A", paired=False, connected=False,
@@ -124,7 +176,7 @@ class ConnectionStateTests(unittest.TestCase):
         adapter.StartDiscovery.assert_called_once_with()
         self.assertTrue(watch.discovery_active)
 
-    def test_discovery_does_not_restart_for_cached_unpaired_watch(self):
+    def test_discovery_continues_for_cached_unpaired_watch(self):
         watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
         watch.adapter_path = "/org/bluez/hci0"
         watch.device_path = "/org/bluez/hci0/dev_watch"
@@ -133,13 +185,16 @@ class ConnectionStateTests(unittest.TestCase):
         watch.refresh_devices = mock.Mock(return_value=True)
         watch.ensure_gatt_profile_registered = mock.Mock()
         watch.update_property_receivers = mock.Mock()
-        watch.bluez_object = mock.Mock()
+        watch.bluez_object = mock.Mock(return_value=mock.sentinel.adapter)
+        adapter = mock.Mock()
 
-        watch.start_discovery()
+        with mock.patch.object(daemon.dbus, "Interface", return_value=adapter):
+            watch.start_discovery()
 
         watch.ensure_gatt_profile_registered.assert_called_once_with()
         watch.update_property_receivers.assert_called_once_with()
-        watch.bluez_object.assert_not_called()
+        adapter.StartDiscovery.assert_called_once_with()
+        self.assertTrue(watch.discovery_active)
 
     def test_in_progress_manual_connection_is_left_to_bluez(self):
         class InProgress(dbus.DBusException):
@@ -541,6 +596,32 @@ class ConnectionStateTests(unittest.TestCase):
 
 class RevisionStateTests(unittest.TestCase):
 
+    def test_initial_pair_uses_live_device_without_rediscovery(self):
+        watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
+        watch.device_path = "/org/bluez/hci0/dev_watch"
+        watch.pending_passkey = None
+        watch.pair_attempt = 0
+        watch.pair_transport_attempt = 0
+        watch.state = {"address": "28:84:85:B4:F2:6A"}
+        watch.write_state = mock.Mock()
+        watch.log = mock.Mock()
+        watch.stop_discovery = mock.Mock()
+        watch.start_discovery = mock.Mock()
+        watch.bluez_object = mock.Mock(return_value=mock.sentinel.device)
+        device = mock.Mock()
+
+        with (
+            mock.patch.object(daemon.dbus, "Interface", return_value=device),
+            mock.patch.object(daemon.GLib, "timeout_add", return_value=73) as timeout_add,
+        ):
+            watch.pair(123456)
+
+        watch.stop_discovery.assert_called_once_with()
+        watch.start_discovery.assert_not_called()
+        timeout_add.assert_called_once_with(
+            daemon.PAIRING_CLEANUP_MILLISECONDS, watch.begin_pair, 1
+        )
+
     def test_pairing_transport_timeout_retries_without_reentering_code(self):
         watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
         watch.pair_attempt = 1
@@ -570,10 +651,10 @@ class RevisionStateTests(unittest.TestCase):
             daemon.PAIRING_RETRY_DELAY_MILLISECONDS, watch.prepare_pair, 2
         )
 
-    def test_pairing_preflight_briefly_refreshes_bluez_device(self):
+    def test_pairing_retry_refreshes_bluez_device(self):
         watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
         watch.pair_attempt = 1
-        watch.pair_transport_attempt = 1
+        watch.pair_transport_attempt = 2
         watch.pending_passkey = 123456
         watch.start_discovery = mock.Mock()
 
@@ -582,21 +663,7 @@ class RevisionStateTests(unittest.TestCase):
 
         watch.start_discovery.assert_called_once_with(force=True)
         timeout_add.assert_called_once_with(
-            daemon.PAIRING_DISCOVERY_MILLISECONDS, watch.begin_pair, 1
-        )
-
-    def test_pairing_retry_allows_longer_rediscovery_window(self):
-        watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
-        watch.pair_attempt = 2
-        watch.pair_transport_attempt = 2
-        watch.pending_passkey = 123456
-        watch.start_discovery = mock.Mock()
-
-        with mock.patch.object(daemon.GLib, "timeout_add", return_value=73) as timeout_add:
-            self.assertFalse(watch.prepare_pair(2))
-
-        timeout_add.assert_called_once_with(
-            daemon.PAIRING_RETRY_DISCOVERY_MILLISECONDS, watch.begin_pair, 2
+            daemon.PAIRING_RETRY_DISCOVERY_MILLISECONDS, watch.begin_pair, 1
         )
 
     def test_pairing_preflight_retries_when_bluez_device_disappears(self):
