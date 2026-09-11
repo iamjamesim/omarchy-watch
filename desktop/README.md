@@ -90,6 +90,55 @@ systemctl --user status omarchy-watch.service
 journalctl --user -u omarchy-watch.service -f
 ```
 
+## Troubleshooting
+
+If a paired watch stops reconnecting, try these steps in order. Check the
+status after each step:
+
+```bash
+omarchy-watchctl status
+```
+
+1. Keep the watch near the computer and close any Bluetooth settings window
+   that may still be scanning. Run `omarchy-watchctl sync` once and allow up to
+   30 seconds for the connection.
+2. Restart only the desktop bridge, then try the sync again:
+
+   ```bash
+   systemctl --user restart omarchy-watch.service
+   omarchy-watchctl sync
+   ```
+
+3. Restart the watch normally, then run `omarchy-watchctl sync` while it is in
+   its initial fast-reconnect window.
+4. Turn the laptop's Bluetooth off and back on. This will temporarily disconnect
+   other Bluetooth accessories.
+5. Reboot the laptop if the Bluetooth controller or driver still appears stuck.
+
+Use `omarchy-watchctl rescan` when an unpaired watch is not found. It does not
+force a connection to a watch that is already paired.
+
+Do not remove the watch from BlueZ, delete the desktop identity, or erase the
+watch flash as routine troubleshooting. The bond and owner identity exist on
+both devices, so resetting only one side can prevent them from reconnecting. A
+factory reset must deliberately clear both sides; see the
+[firmware guide](../firmware/README.md#flash).
+
+Before opening an issue, collect:
+
+```bash
+omarchy version
+uname -r
+omarchy-watchctl status
+bluetoothctl show
+systemctl --user status omarchy-watch.service --no-pager
+journalctl --user -u omarchy-watch.service --since "10 minutes ago" --no-pager
+journalctl -b -u bluetooth.service --since "10 minutes ago" --no-pager
+```
+
+Review the output before posting it and redact Bluetooth addresses or device
+IDs if desired.
+
 The command also accepts `pair <six-digit-code>`, `brightness <20-100>`,
 `sync`, and `rescan`. Brightness defaults to 50%; changing it or the resolved
 theme requests a five-second watch preview when the battery is above 15%.

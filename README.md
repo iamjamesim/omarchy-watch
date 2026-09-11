@@ -64,6 +64,15 @@ cup of coffee instead of watching the terminal.
 The integration uses Codex lifecycle hooks but never reads your prompts,
 responses, or transcripts.
 
+## Troubleshooting
+
+Omarchy Watch is new, and Bluetooth behavior can vary across Linux hardware and
+drivers. If something does not work, check the
+[desktop troubleshooting guide](desktop/README.md#troubleshooting) and
+[open an issue](https://github.com/iamjamesim/omarchy-watch/issues) with your
+Omarchy version, Bluetooth adapter, and relevant logs. Fixes and PRs are
+welcome.
+
 ## More details
 
 - [Firmware](firmware/README.md) — build, flash, power, and boot behavior
