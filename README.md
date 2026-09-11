@@ -1,7 +1,6 @@
 # Omarchy Watch
 
-An Omarchy companion smartwatch for the
-[Waveshare ESP32-S3-Touch-AMOLED-2.06](https://www.waveshare.com/wiki/ESP32-S3-Touch-AMOLED-2.06).
+An Omarchy smartwatch for the [Waveshare ESP32-S3-Touch-AMOLED-2.06](https://www.waveshare.com/wiki/ESP32-S3-Touch-AMOLED-2.06), with a top-bar widget and desktop client for pairing, settings, and sync.
 
 ![Omarchy Watch synchronized with an Omarchy desktop](docs/images/omarchy-watch-hero.webp)
 
@@ -13,12 +12,15 @@ _This is an independent community project, not an official Omarchy project._
   <img src="docs/images/omarchy-watch-on-wrist.webp" width="560" alt="Omarchy Watch on a wrist with the pink Omarchy theme">
 </p>
 
-- A watch face designed using JetBrains Mono and Nerd Fonts glyphs to match Omarchy's look and feel.
+- A watch face designed to match Omarchy's look and feel with JetBrains Mono and Nerd Fonts glyphs.
+- A top-bar widget for pairing, connection status, brightness, and completion sound.
 - Date, time, and weather from your desktop top bar.
 - Color scheme automatically synced to your current Omarchy theme.
 - Agent status and task completion alerts (Codex-only at the moment).
 
 ## Install
+
+The easiest way to get started is to ask your coding agent to follow the steps below. It can flash the watch, install the desktop client, and guide you through pairing.
 
 Omarchy Watch requires Omarchy 4.0 or newer, Bluetooth LE, and the exact
 Waveshare ESP32-S3-Touch-AMOLED-2.06 board. The board is development hardware,
