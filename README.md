@@ -13,8 +13,7 @@ _This is an independent community project, not an official Omarchy project._
   <img src="docs/images/omarchy-watch-on-wrist.webp" width="560" alt="Omarchy Watch on a wrist with the pink Omarchy theme">
 </p>
 
-- A carefully designed watch face using JetBrains Mono and Nerd Fonts glyphs
-  to match Omarchy's look and feel.
+- A watch face designed using JetBrains Mono and Nerd Fonts glyphs to match Omarchy's look and feel.
 - Date, time, and weather from your desktop top bar.
 - Color scheme automatically synced to your current Omarchy theme.
 - Agent status and task completion alerts (Codex-only at the moment).
@@ -56,10 +55,7 @@ Watch entries before starting a new session.
 
 ### 3. Pair
 
-Do not pair from Omarchy's general Bluetooth panel or from `bluetoothctl`.
-The Omarchy Watch companion owns the secure setup flow. When it discovers an
-unpaired watch, its top-bar panel opens automatically and focuses the code
-field. Enter the six-digit code shown on the watch and select **Pair**.
+Pair through the Omarchy Watch panel, not Omarchy's general Bluetooth panel or `bluetoothctl`. When the companion discovers an unpaired watch, its top-bar panel opens automatically and focuses the code field. Enter the six-digit code shown on the watch and select **Pair**.
 
 If discovery takes longer than expected, open the persistent watch icon and
 select **Scan Again**. Pairing is only required once.
@@ -103,12 +99,7 @@ responses, or transcripts.
 
 ## Troubleshooting
 
-Omarchy Watch is new, and Bluetooth behavior can vary across Linux hardware and
-drivers. If something does not work, check the
-[desktop troubleshooting guide](desktop/README.md#troubleshooting) and
-[open an issue](https://github.com/iamjamesim/omarchy-watch/issues) with your
-Omarchy version, Bluetooth adapter, and relevant logs. Fixes and PRs are
-welcome.
+Bluetooth behavior can vary across Linux hardware and drivers. If something does not work, check the [desktop troubleshooting guide](desktop/README.md#troubleshooting) and [open an issue](https://github.com/iamjamesim/omarchy-watch/issues) with your Omarchy version, Bluetooth adapter, and relevant logs. Fixes and PRs are welcome.
 
 ## More details
 
