@@ -4,19 +4,19 @@ An Omarchy companion smartwatch for the Waveshare ESP32-S3-Touch-AMOLED-2.06.
 
 ![Omarchy Watch synchronized with an Omarchy desktop](docs/images/omarchy-watch-hero.webp)
 
-This is an independent community project, not an official Omarchy project.
+_This is an independent community project, not an official Omarchy project._
 
 ## Key features
+
+<p align="center">
+  <img src="docs/images/omarchy-watch-on-wrist.webp" width="560" alt="Omarchy Watch on a wrist with the pink Omarchy theme">
+</p>
 
 - A carefully crafted watch face built around JetBrains Mono, familiar Omarchy
   glyphs, and the desktop's restrained visual language.
 - Date, time, and weather from your desktop top bar.
 - Color scheme automatically synced to your current Omarchy theme.
 - At-a-glance agent status and task-completion alerts (Codex-only for now).
-
-<p align="center">
-  <img src="docs/images/omarchy-watch-on-wrist.webp" width="560" alt="Omarchy Watch on a wrist with the pink Omarchy theme">
-</p>
 
 ## Install
 
