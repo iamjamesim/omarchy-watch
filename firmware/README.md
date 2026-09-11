@@ -87,8 +87,10 @@ idf.py -p /dev/ttyACM0 flash monitor
 Exit the monitor with `Ctrl+]`.
 
 `erase-flash` is a factory reset, not a routine development step. It deletes
-ownership and bonding state on the watch; remove the corresponding device from
-BlueZ before pairing it again.
+ownership and bonding state on the watch. BlueZ still retains the laptop's
+copy of the old bond, so merely disconnecting is not enough: remove or forget
+the corresponding device from the general Bluetooth settings (or use
+`bluetoothctl remove <watch-address>`) before pairing it again.
 
 ## Boot behavior
 

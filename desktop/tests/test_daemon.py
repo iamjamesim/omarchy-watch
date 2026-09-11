@@ -35,7 +35,7 @@ class PlainValueTests(unittest.TestCase):
 
 
 class ConnectionStateTests(unittest.TestCase):
-    def test_unpaired_watch_remains_visible_while_discovery_continues(self):
+    def test_discovery_stops_after_unpaired_watch_is_found(self):
         adapter_path = dbus.ObjectPath("/org/bluez/hci0")
         device_path = dbus.ObjectPath("/org/bluez/hci0/dev_watch")
         watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
@@ -59,7 +59,7 @@ class ConnectionStateTests(unittest.TestCase):
 
         self.assertTrue(watch.refresh_devices())
 
-        watch.stop_discovery.assert_not_called()
+        watch.stop_discovery.assert_called_once_with()
         watch.write_state.assert_called_once_with(
             status="found", name="Omarchy Watch",
             address="28:84:85:B4:F2:6A", paired=False, connected=False,
@@ -123,6 +123,23 @@ class ConnectionStateTests(unittest.TestCase):
         self.assertNotIn("UUIDs", discovery_filter)
         adapter.StartDiscovery.assert_called_once_with()
         self.assertTrue(watch.discovery_active)
+
+    def test_discovery_does_not_restart_for_cached_unpaired_watch(self):
+        watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
+        watch.adapter_path = "/org/bluez/hci0"
+        watch.device_path = "/org/bluez/hci0/dev_watch"
+        watch.current_device_properties = {"Paired": False}
+        watch.discovery_active = False
+        watch.refresh_devices = mock.Mock(return_value=True)
+        watch.ensure_gatt_profile_registered = mock.Mock()
+        watch.update_property_receivers = mock.Mock()
+        watch.bluez_object = mock.Mock()
+
+        watch.start_discovery()
+
+        watch.ensure_gatt_profile_registered.assert_called_once_with()
+        watch.update_property_receivers.assert_called_once_with()
+        watch.bluez_object.assert_not_called()
 
     def test_in_progress_manual_connection_is_left_to_bluez(self):
         class InProgress(dbus.DBusException):
@@ -279,6 +296,42 @@ class ConnectionStateTests(unittest.TestCase):
             message="Finishing secure connection",
         )
         watch.cancel_reconnect.assert_called_once_with()
+
+    def test_new_connection_verifies_identity_even_when_profile_is_current(self):
+        adapter_path = dbus.ObjectPath("/org/bluez/hci0")
+        device_path = dbus.ObjectPath("/org/bluez/hci0/dev_watch")
+        watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
+        watch.adapter_path = ""
+        watch.device_path = ""
+        watch.current_device_properties = {}
+        watch.pending_passkey = None
+        watch.identity_verified = False
+        watch.activity_dirty = False
+        watch.desired_fingerprint = "current"
+        watch.synced_fingerprint = "current"
+        watch.state = {
+            "status": "disconnected", "address": "28:84:85:B4:F2:6A",
+            "lastSynced": 123, "connected": False, "watchOwned": True,
+        }
+        watch.managed_objects = mock.Mock(return_value={
+            adapter_path: {daemon.ADAPTER: {"Powered": True}},
+            device_path: {daemon.DEVICE: {
+                "Name": "Omarchy Watch",
+                "Address": "28:84:85:B4:F2:6A",
+                "Paired": True,
+                "Connected": True,
+                "ServicesResolved": True,
+            }},
+        })
+        watch.stop_discovery = mock.Mock()
+        watch.cancel_reconnect = mock.Mock()
+        watch.write_state = mock.Mock()
+        watch.sync_needed = mock.Mock(return_value=False)
+        watch.sync_connected_profile = mock.Mock()
+
+        self.assertTrue(watch.refresh_devices())
+
+        watch.sync_connected_profile.assert_called_once_with()
 
     def test_disconnected_watch_reconnects_with_bounded_backoff(self):
         watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
@@ -447,8 +500,145 @@ class ConnectionStateTests(unittest.TestCase):
         self.assertTrue(watch.write_inflight)
         watch.write_profile.assert_called_once_with()
 
+    def test_current_profile_finishes_after_fresh_identity_verification(self):
+        watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
+        watch.write_inflight = True
+        watch.synced_fingerprint = "current"
+        watch.desired_fingerprint = "current"
+        watch.force_sync_requested = False
+        watch.state = {"deviceId": "01010101-0101-0101-0101-010101010101"}
+        watch.activity_dirty = False
+        watch.write_state = mock.Mock()
+        watch.write_profile = mock.Mock()
+        watch.save_sync_state = mock.Mock()
+        watch.sync_connected_activity = mock.Mock()
+        identity = struct.pack(
+            "<2sBBB3s16sIBBBB",
+            b"OW", 1, daemon.PROTOCOL_VERSION, 1, b"\0" * 3,
+            b"\1" * 16, 255, 0, 5, 2, 0,
+        )
+
+        watch.on_identity_read(identity)
+
+        self.assertTrue(watch.identity_verified)
+        self.assertFalse(watch.write_inflight)
+        watch.write_profile.assert_not_called()
+        watch.write_state.assert_has_calls([
+            mock.call(
+                deviceId="01010101-0101-0101-0101-010101010101",
+                protocol=daemon.PROTOCOL_VERSION,
+                firmware="0.5.2",
+                capabilities=255,
+                watchOwned=True,
+            ),
+            mock.call(
+                status="ready", paired=True, connected=True,
+                message="Up to date",
+            ),
+        ])
+        watch.save_sync_state.assert_called_once_with()
+
 
 class RevisionStateTests(unittest.TestCase):
+
+    def test_pairing_transport_timeout_retries_without_reentering_code(self):
+        watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
+        watch.pair_attempt = 1
+        watch.pair_transport_attempt = 1
+        watch.pair_timeout_id = 42
+        watch.pending_passkey = 123456
+        watch.pairing_device = "/org/bluez/hci0/dev_watch"
+        watch.ignore_agent_cancel_until = 0
+        watch.bluez_object = mock.Mock(return_value=mock.sentinel.device)
+        watch.write_state = mock.Mock()
+        watch.log = mock.Mock()
+        device = mock.Mock()
+
+        with (
+            mock.patch.object(daemon.dbus, "Interface", return_value=device),
+            mock.patch.object(daemon.GLib, "timeout_add", return_value=73) as timeout_add,
+        ):
+            self.assertFalse(watch.on_pair_timeout(1))
+
+        self.assertEqual(watch.pending_passkey, 123456)
+        self.assertEqual(watch.pair_attempt, 2)
+        self.assertEqual(watch.pair_transport_attempt, 2)
+        watch.write_state.assert_called_once_with(
+            status="pairing", message="Retrying secure connection (2/3)"
+        )
+        timeout_add.assert_called_once_with(
+            daemon.PAIRING_RETRY_DELAY_MILLISECONDS, watch.prepare_pair, 2
+        )
+
+    def test_pairing_preflight_briefly_refreshes_bluez_device(self):
+        watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
+        watch.pair_attempt = 1
+        watch.pair_transport_attempt = 1
+        watch.pending_passkey = 123456
+        watch.start_discovery = mock.Mock()
+
+        with mock.patch.object(daemon.GLib, "timeout_add", return_value=73) as timeout_add:
+            self.assertFalse(watch.prepare_pair(1))
+
+        watch.start_discovery.assert_called_once_with(force=True)
+        timeout_add.assert_called_once_with(
+            daemon.PAIRING_DISCOVERY_MILLISECONDS, watch.begin_pair, 1
+        )
+
+    def test_pairing_retry_allows_longer_rediscovery_window(self):
+        watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
+        watch.pair_attempt = 2
+        watch.pair_transport_attempt = 2
+        watch.pending_passkey = 123456
+        watch.start_discovery = mock.Mock()
+
+        with mock.patch.object(daemon.GLib, "timeout_add", return_value=73) as timeout_add:
+            self.assertFalse(watch.prepare_pair(2))
+
+        timeout_add.assert_called_once_with(
+            daemon.PAIRING_RETRY_DISCOVERY_MILLISECONDS, watch.begin_pair, 2
+        )
+
+    def test_pairing_preflight_retries_when_bluez_device_disappears(self):
+        watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
+        watch.pair_attempt = 1
+        watch.pair_transport_attempt = 1
+        watch.pending_passkey = 123456
+        watch.device_path = "/org/bluez/hci0/dev_watch"
+        watch.stop_discovery = mock.Mock()
+        watch.refresh_devices = mock.Mock(
+            side_effect=lambda **kwargs: setattr(watch, "device_path", "") or True
+        )
+        watch.retry_pairing_transport = mock.Mock(return_value=False)
+
+        self.assertFalse(watch.begin_pair(1))
+
+        watch.stop_discovery.assert_called_once_with()
+        watch.refresh_devices.assert_called_once_with(allow_sync=False)
+        watch.retry_pairing_transport.assert_called_once_with(
+            1, "Pairing transport attempt 1 could not rediscover the watch"
+        )
+
+    def test_pairing_transport_timeout_fails_after_bounded_retries(self):
+        watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
+        watch.pair_attempt = 3
+        watch.pair_transport_attempt = daemon.PAIRING_MAX_TRANSPORT_ATTEMPTS
+        watch.pair_timeout_id = 42
+        watch.pending_passkey = 123456
+        watch.pairing_device = "/org/bluez/hci0/dev_watch"
+        watch.ignore_agent_cancel_until = 0
+        watch.bluez_object = mock.Mock(return_value=mock.sentinel.device)
+        watch.log = mock.Mock()
+        watch.fail = mock.Mock()
+        device = mock.Mock()
+
+        with mock.patch.object(daemon.dbus, "Interface", return_value=device):
+            self.assertFalse(watch.on_pair_timeout(3))
+
+        watch.fail.assert_called_once_with(
+            "Couldn't reach the watch. Keep it nearby and try again."
+        )
+
     def test_pending_is_derived_from_desired_and_synced_revisions(self):
         watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
         watch.desired_fingerprint = "same"
@@ -526,6 +716,7 @@ class RevisionStateTests(unittest.TestCase):
         watch.write_state.assert_called_once_with(
             status="ready", paired=True, connected=True,
             lastSynced=mock.ANY,
+            watchOwned=True,
             message="Time, weather, and theme are up to date",
             theme="SOLITUDE",
         )

@@ -27,7 +27,7 @@ not a waterproof consumer watch.
 
 ### 1. Flash the watch
 
-Download `omarchy-watch-v0.5.1-flash.tar.gz` from the
+Download `omarchy-watch-v0.5.2-flash.tar.gz` from the
 [latest release](https://github.com/iamjamesim/omarchy-watch/releases/latest),
 extract it, connect the board's USB-C programming port, and run:
 
@@ -86,9 +86,10 @@ From the repository checkout:
 
 Removal stops the bridge and removes its commands, panel, service, and Codex
 hook entries. Pairing identity, settings, and cached state are deliberately
-preserved so a reinstall can reconnect. A complete factory reset requires
-erasing the watch and removing its corresponding device from BlueZ; see the
-[firmware guide](firmware/README.md#flash).
+preserved so a reinstall can reconnect. The identity is also the watch's owner
+credential: deleting only the desktop copy would require a watch factory reset
+before it could be paired again. For coordinated removal of both sides, see
+the [desktop guide](desktop/README.md#complete-reset-or-removal).
 
 ## Agent status and alerts
 

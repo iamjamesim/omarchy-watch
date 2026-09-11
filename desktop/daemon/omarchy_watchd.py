@@ -46,6 +46,10 @@ GATT_PROFILE_PATH = f"{GATT_APPLICATION_PATH}/profile0"
 PROTOCOL_VERSION = 3
 PAIRING_TIMEOUT_SECONDS = 20
 PAIRING_CLEANUP_MILLISECONDS = 750
+PAIRING_DISCOVERY_MILLISECONDS = 1500
+PAIRING_RETRY_DELAY_MILLISECONDS = 5000
+PAIRING_RETRY_DISCOVERY_MILLISECONDS = 10000
+PAIRING_MAX_TRANSPORT_ATTEMPTS = 3
 WEATHER_REFRESH_SECONDS = 15 * 60
 WEATHER_MAX_AGE_SECONDS = 6 * 60 * 60
 DISPLAY_PREVIEW_SECONDS = 30
@@ -516,6 +520,7 @@ class WatchDaemon:
         self.pairing_device = ""
         self.pending_passkey: int | None = None
         self.pair_attempt = 0
+        self.pair_transport_attempt = 0
         self.pair_timeout_id = 0
         self.ignore_agent_cancel_until = 0.0
         self.connect_inflight = False
@@ -946,6 +951,7 @@ class WatchDaemon:
     def fail(self, message: str) -> None:
         if self.pending_passkey is not None:
             self.pair_attempt += 1
+        self.pair_transport_attempt = 0
         self.cancel_pair_timeout()
         self.pending_passkey = None
         self.pairing_device = ""
@@ -1036,8 +1042,7 @@ class WatchDaemon:
         self.device_path, properties = candidates[0]
         self.current_device_properties = properties
         paired = bool(properties.get("Paired"))
-        if paired:
-            self.stop_discovery()
+        self.stop_discovery()
         connected = bool(properties.get("Connected"))
         services_resolved = bool(properties.get("ServicesResolved"))
         if not connected:
@@ -1079,7 +1084,7 @@ class WatchDaemon:
             if connected:
                 self.cancel_reconnect()
                 if allow_sync and services_resolved:
-                    if self.sync_needed():
+                    if self.sync_needed() or not self.identity_verified:
                         self.sync_connected_profile()
                     elif self.activity_dirty:
                         self.sync_connected_activity()
@@ -1134,12 +1139,12 @@ class WatchDaemon:
         self.ensure_connection("automatic reconnect")
         return False
 
-    def start_discovery(self) -> None:
+    def start_discovery(self, force: bool = False) -> None:
         if not self.refresh_devices():
             self.update_property_receivers()
             return
         self.ensure_gatt_profile_registered()
-        if self.device_path and self.current_device_properties.get("Paired"):
+        if self.device_path and not force:
             self.update_property_receivers()
             return
         adapter = self.bluez_object(self.adapter_path)
@@ -1187,7 +1192,7 @@ class WatchDaemon:
     def schedule_discovery_restart(self) -> None:
         if self.discovery_restart_source or self.pending_passkey is not None:
             return
-        if self.device_path and self.current_device_properties.get("Paired"):
+        if self.device_path:
             return
         self.stop_discovery()
         self.discovery_restart_source = GLib.timeout_add(250, self.restart_discovery)
@@ -1327,6 +1332,7 @@ class WatchDaemon:
 
         self.pair_attempt += 1
         attempt = self.pair_attempt
+        self.pair_transport_attempt = 1
         self.pending_passkey = code
         self.pairing_device = self.device_path
         self.write_state(status="pairing", message="Pairing securely")
@@ -1350,12 +1356,43 @@ class WatchDaemon:
             }:
                 self.log(f"Pairing cleanup returned {error.get_dbus_name()}: {error.get_dbus_message()}")
 
-        GLib.timeout_add(PAIRING_CLEANUP_MILLISECONDS, self.begin_pair, attempt)
+        GLib.timeout_add(PAIRING_CLEANUP_MILLISECONDS, self.prepare_pair, attempt)
+
+    def prepare_pair(self, attempt: int) -> bool:
+        if attempt != self.pair_attempt or self.pending_passkey is None:
+            return False
+
+        # BlueZ may discard an unpaired Device1 object after discovery stops.
+        # Briefly scan before every transport attempt so Pair() always receives
+        # a live object, without leaving open-ended discovery running while the
+        # user reads and enters the code.
+        self.start_discovery(force=True)
+        if attempt != self.pair_attempt or self.pending_passkey is None:
+            return False
+        discovery_milliseconds = (
+            PAIRING_DISCOVERY_MILLISECONDS
+            if self.pair_transport_attempt == 1
+            else PAIRING_RETRY_DISCOVERY_MILLISECONDS
+        )
+        GLib.timeout_add(
+            discovery_milliseconds, self.begin_pair, attempt
+        )
+        return False
 
     def begin_pair(self, attempt: int) -> bool:
         if attempt != self.pair_attempt or self.pending_passkey is None:
             return False
 
+        self.stop_discovery()
+        self.refresh_devices(allow_sync=False)
+        if not self.device_path:
+            return self.retry_pairing_transport(
+                attempt,
+                f"Pairing transport attempt {self.pair_transport_attempt} "
+                "could not rediscover the watch",
+            )
+
+        self.pairing_device = self.device_path
         device = self.bluez_object(self.pairing_device)
         self.pair_timeout_id = GLib.timeout_add_seconds(
             PAIRING_TIMEOUT_SECONDS, self.on_pair_timeout, attempt
@@ -1367,26 +1404,58 @@ class WatchDaemon:
         )
         return False
 
+    def retry_pairing_transport(self, attempt: int, reason: str) -> bool:
+        if attempt != self.pair_attempt or self.pending_passkey is None:
+            return False
+
+        self.pair_attempt += 1
+        retry_attempt = self.pair_attempt
+        self.log(reason)
+        if self.pair_transport_attempt < PAIRING_MAX_TRANSPORT_ATTEMPTS:
+            self.pair_transport_attempt += 1
+            self.write_state(
+                status="pairing",
+                message=(
+                    "Retrying secure connection "
+                    f"({self.pair_transport_attempt}/{PAIRING_MAX_TRANSPORT_ATTEMPTS})"
+                ),
+            )
+            self.log(
+                "Retrying pairing transport without requiring the code again "
+                f"({self.pair_transport_attempt}/{PAIRING_MAX_TRANSPORT_ATTEMPTS})"
+            )
+            GLib.timeout_add(
+                PAIRING_RETRY_DELAY_MILLISECONDS, self.prepare_pair, retry_attempt
+            )
+            return False
+
+        self.fail("Couldn't reach the watch. Keep it nearby and try again.")
+        return False
+
     def on_pair_timeout(self, attempt: int) -> bool:
         if attempt != self.pair_attempt or self.pending_passkey is None:
             return False
 
         pairing_device = self.pairing_device
-        self.pair_attempt += 1
         self.pair_timeout_id = 0
+        self.ignore_agent_cancel_until = time.monotonic() + 1.0
+        result = self.retry_pairing_transport(
+            attempt,
+            f"Pairing transport attempt {self.pair_transport_attempt} reached the "
+            f"{PAIRING_TIMEOUT_SECONDS}-second deadline",
+        )
         try:
             dbus.Interface(self.bluez_object(pairing_device), DEVICE).CancelPairing()
         except dbus.DBusException:
             pass
-        self.log(f"Pairing attempt {attempt} reached the {PAIRING_TIMEOUT_SECONDS}-second deadline")
-        self.fail("Code didn't match. Check the watch and try again.")
-        return False
+        return result
 
     def on_paired(self, attempt: int) -> None:
         if attempt != self.pair_attempt:
             return
         self.log(f"Pairing attempt {attempt} succeeded")
         self.cancel_pair_timeout()
+        self.pair_transport_attempt = 0
         self.pending_passkey = None
         self.force_sync_requested = True
         self.ensure_gatt_profile_registered()
@@ -1402,6 +1471,16 @@ class WatchDaemon:
         name = error.get_dbus_name() if isinstance(error, dbus.DBusException) else ""
         detail = error.get_dbus_message() if isinstance(error, dbus.DBusException) else str(error)
         self.log(f"Pairing attempt {attempt} failed with {name or 'unknown'}: {detail}")
+        if name in {
+            "org.freedesktop.DBus.Error.UnknownObject",
+            "org.bluez.Error.DoesNotExist",
+            "org.bluez.Error.ConnectionAttemptFailed",
+        }:
+            self.retry_pairing_transport(
+                attempt,
+                f"BlueZ dropped the watch during pairing: {detail}",
+            )
+            return
         if name in {
             "org.bluez.Error.AuthenticationCanceled",
             "org.bluez.Error.AuthenticationFailed",
@@ -1551,7 +1630,8 @@ class WatchDaemon:
         self.connect_inflight = False
         if self.write_inflight:
             return
-        if not self.sync_needed():
+        profile_needed = self.sync_needed()
+        if not profile_needed and self.identity_verified:
             self.sync_connected_activity()
             return
         identity_path = self.find_characteristic(IDENTITY_UUID)
@@ -1560,7 +1640,14 @@ class WatchDaemon:
             self.fail("The watch connected but its setup service did not appear")
             return
 
-        self.write_state(status="syncing", connected=True, message="Sending desktop settings")
+        self.write_state(
+            status="syncing",
+            connected=True,
+            message=(
+                "Sending desktop settings" if profile_needed
+                else "Verifying watch identity"
+            ),
+        )
         self.write_inflight = True
         if self.identity_verified:
             self.write_profile()
@@ -1603,15 +1690,26 @@ class WatchDaemon:
         if self.synced_fingerprint and previous_device_id != resolved_device_id:
             self.synced_fingerprint = ""
             self.state["lastSynced"] = 0
+        watch_owned = bool(owned & 1)
         self.write_state(
             deviceId=resolved_device_id,
             protocol=self.watch_protocol,
             firmware=f"{fw_major}.{fw_minor}.{fw_patch}",
             capabilities=capabilities,
-            watchOwned=bool(owned & 1),
+            watchOwned=watch_owned,
         )
         self.identity_verified = True
-        self.write_profile()
+        if self.sync_needed() or not watch_owned:
+            self.write_profile()
+            return
+
+        self.write_inflight = False
+        self.write_state(
+            status="ready", paired=True, connected=True, message="Up to date"
+        )
+        self.save_sync_state()
+        if self.activity_dirty:
+            self.sync_connected_activity()
 
     def on_identity_error(self, error) -> None:
         self.write_inflight = False
@@ -1725,6 +1823,7 @@ class WatchDaemon:
         pending = self.sync_pending()
         self.write_state(
             status="ready", paired=True, connected=True, lastSynced=now,
+            watchOwned=True,
             message=("New changes are waiting to sync" if pending else
                      "Time, weather, and theme are up to date"),
             theme=self.inflight_theme,

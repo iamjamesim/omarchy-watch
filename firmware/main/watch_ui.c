@@ -27,6 +27,7 @@ enum {
     DISPLAY_HEIGHT = 502,
     SAFE_INLINE = 28,
     DEFAULT_BRIGHTNESS_PERCENT = 50,
+    PAIRING_BRIGHTNESS_PERCENT = 75,
     DISPLAY_TIMEOUT_MS = 15000,
     DISPLAY_PREVIEW_TIMEOUT_MS = 5000,
     DISPLAY_PREVIEW_MIN_BATTERY_PERCENT = 15,
@@ -67,6 +68,14 @@ static char weather_location[24] = "SAN FRANCISCO";
 static lv_indev_t *display_input;
 
 static void arm_display_timeout(uint32_t timeout_ms);
+
+static uint8_t effective_brightness_percent(void)
+{
+    if (pairing_visible && active_brightness_percent < PAIRING_BRIGHTNESS_PERCENT) {
+        return PAIRING_BRIGHTNESS_PERCENT;
+    }
+    return active_brightness_percent;
+}
 
 static void round_display_area(lv_area_t *area)
 {
@@ -142,7 +151,7 @@ static void present_screen_locked(void)
         return;
     }
     render_full_screen_locked();
-    bsp_display_brightness_set(active_brightness_percent);
+    bsp_display_brightness_set(effective_brightness_percent());
     arm_display_timeout(DISPLAY_TIMEOUT_MS);
 }
 
@@ -471,7 +480,7 @@ static void wake_display_locked(uint32_t timeout_ms)
         update_agent();
         render_full_screen_locked();
     }
-    bsp_display_brightness_set(active_brightness_percent);
+    bsp_display_brightness_set(effective_brightness_percent());
     arm_display_timeout(timeout_ms);
 }
 
@@ -547,7 +556,7 @@ void watch_ui_show_pairing(uint32_t passkey)
     lv_obj_set_pos(eyebrow, SAFE_INLINE, 146);
 
     lv_obj_t *pin = make_label(screen, code, &jetbrains_mono_42);
-    lv_obj_set_style_text_color(pin, accent_color(), 0);
+    lv_obj_set_style_text_color(pin, foreground_color(), 0);
     lv_obj_set_style_text_letter_space(pin, 2, 0);
     lv_obj_set_pos(pin, SAFE_INLINE, 205);
 

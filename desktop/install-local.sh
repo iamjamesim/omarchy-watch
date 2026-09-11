@@ -10,11 +10,31 @@ unit_dir=${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user
 plugin_dir=${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/plugins/io.github.iamjamesim.omarchy-watch
 plugin_id=io.github.iamjamesim.omarchy-watch
 
-wait_for_shell() {
+shell_output() {
+  local output
   for _ in {1..40}; do
-    if omarchy-shell shell listPlugins >/dev/null 2>&1; then
+    if output=$(omarchy-shell shell "$@" 2>/dev/null); then
+      printf '%s\n' "$output"
       return 0
     fi
+    sleep 0.25
+  done
+  return 1
+}
+
+wait_for_shell() {
+  shell_output listPlugins >/dev/null
+}
+
+ensure_plugin_enabled() {
+  local plugins
+  for _ in {1..40}; do
+    if plugins=$(omarchy-shell shell listPlugins 2>/dev/null) &&
+      jq -e --arg id "$plugin_id" \
+        'any(.[]; .id == $id and .enabled == true)' <<<"$plugins" >/dev/null; then
+      return 0
+    fi
+    omarchy plugin enable "$plugin_id" --section right >/dev/null 2>&1 || true
     sleep 0.25
   done
   return 1
@@ -67,11 +87,20 @@ if ! wait_for_shell; then
     exit 1
   }
 fi
-omarchy-shell shell rescanPlugins >/dev/null
-plugins=$(omarchy-shell shell listPlugins)
+if ! shell_output rescanPlugins >/dev/null; then
+  echo "Omarchy shell did not accept the plugin refresh." >&2
+  exit 1
+fi
+if ! plugins=$(shell_output listPlugins); then
+  echo "Omarchy shell did not return its plugin registry." >&2
+  exit 1
+fi
 if ! jq -e --arg id "$plugin_id" \
   'any(.[]; .id == $id and .enabled == true)' <<<"$plugins" >/dev/null; then
-  omarchy plugin enable "$plugin_id" --section right
+  if ! ensure_plugin_enabled; then
+    echo "Omarchy shell did not enable the watch plugin." >&2
+    exit 1
+  fi
 fi
 omarchy restart shell || true
 

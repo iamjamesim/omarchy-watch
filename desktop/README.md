@@ -91,8 +91,10 @@ six-digit passkey and establish the watch owner identity.
 After the firmware starts on an unowned watch, the Omarchy Watch panel opens
 automatically and focuses its code field. Enter the code displayed on the
 watch and select **Pair**. If the watch is not found, use **Scan Again** in
-that same panel. The watch icon and pairing panel remain available while the
-bridge is searching.
+that same panel. A single pairing submission makes up to three bounded
+transport attempts with the same code when BlueZ cannot initially reach the
+watch. The watch icon and pairing panel remain available while the bridge is
+searching.
 
 ## Remove
 
@@ -104,7 +106,37 @@ From the repository root:
 
 The uninstaller removes only Omarchy Watch's installed files and lifecycle
 hook entries. It preserves pairing identity, preferences, state, and forecast
-cache so reinstalling can reconnect without pairing again.
+cache so reinstalling can reconnect without pairing again. The identity is the
+watch's desktop-owner credential; deleting it without also factory-resetting
+the watch would leave that watch owned by an identity the desktop no longer
+has.
+
+## Complete reset or removal
+
+A watch factory reset clears its copy of the Bluetooth bond and owner state,
+but BlueZ still retains the laptop's copy. **Disconnect** is not enough: remove
+or forget **Omarchy Watch** in the general Bluetooth settings, then close that
+panel so it is no longer scanning. The equivalent command is:
+
+```bash
+bluetoothctl remove <watch-address>
+```
+
+The companion will rediscover the unowned watch and open its pairing panel.
+The existing desktop identity and preferences may remain; after secure pairing
+they become the reset watch's owner and settings again.
+
+For a completely fresh installation, first back up and then remove the
+app-owned desktop directories after running the uninstaller:
+
+```text
+$XDG_CONFIG_HOME/omarchy-watch       (fallback: ~/.config/omarchy-watch)
+$XDG_STATE_HOME/omarchy-watch        (fallback: ~/.local/state/omarchy-watch)
+$XDG_CACHE_HOME/omarchy-watch        (fallback: ~/.cache/omarchy-watch)
+```
+
+Do this only together with the watch factory reset and BlueZ removal. Resetting
+only one side intentionally does not produce a reusable pairing.
 
 ## Diagnostics
 
@@ -112,6 +144,7 @@ cache so reinstalling can reconnect without pairing again.
 omarchy-watchctl status
 systemctl --user status omarchy-watch.service
 journalctl --user -u omarchy-watch.service -f
+journalctl -k --since "10 minutes ago" --no-pager
 ```
 
 ## Troubleshooting
@@ -137,7 +170,16 @@ omarchy-watchctl status
    its initial fast-reconnect window.
 4. Turn the laptop's Bluetooth off and back on. This will temporarily disconnect
    other Bluetooth accessories.
-5. Reboot the laptop if the Bluetooth controller or driver still appears stuck.
+5. If BlueZ says it is scanning but still cannot find an advertising watch,
+   restart the system Bluetooth service:
+
+   ```bash
+   sudo systemctl restart bluetooth.service
+   ```
+
+   This temporarily disconnects every Bluetooth accessory, but preserves their
+   bonds.
+6. Reboot the laptop if the Bluetooth controller or driver still appears stuck.
 
 Use `omarchy-watchctl rescan` when an unpaired watch is not found. It does not
 force a connection to a watch that is already paired.
@@ -145,8 +187,8 @@ force a connection to a watch that is already paired.
 Do not remove the watch from BlueZ, delete the desktop identity, or erase the
 watch flash as routine troubleshooting. The bond and owner identity exist on
 both devices, so resetting only one side can prevent them from reconnecting. A
-factory reset must deliberately clear both sides; see the
-[firmware guide](../firmware/README.md#flash).
+factory reset must deliberately clear both sides; see
+[Complete reset or removal](#complete-reset-or-removal).
 
 Before opening an issue, collect:
 
@@ -158,6 +200,7 @@ bluetoothctl show
 systemctl --user status omarchy-watch.service --no-pager
 journalctl --user -u omarchy-watch.service --since "10 minutes ago" --no-pager
 journalctl -b -u bluetooth.service --since "10 minutes ago" --no-pager
+journalctl -k --since "10 minutes ago" --no-pager
 ```
 
 Review the output before posting it and redact Bluetooth addresses or device
