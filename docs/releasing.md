@@ -22,7 +22,7 @@ Activate ESP-IDF 5.5.x, then run:
 
 ```bash
 ./tools/package-release.sh
-(cd dist && sha256sum -c omarchy-watch-v0.5.1-flash.tar.gz.sha256)
+(cd dist && sha256sum -c omarchy-watch-v0.5.2-flash.tar.gz.sha256)
 ```
 
 The packaging command creates the archive checksum alongside the archive.
@@ -37,15 +37,15 @@ prominently.
 ## Tag and publish
 
 Commit and push every release change before building final artifacts. Create
-an annotated `v0.5.1` tag on that exact commit and push the tag. The release
+an annotated `v0.5.2` tag on that exact commit and push the tag. The release
 workflow rebuilds the firmware with ESP-IDF 5.5.5, verifies the archive, and
-creates a draft GitHub release using `.github/release-notes/v0.5.1.md`. Review
+creates a draft GitHub release using `.github/release-notes/v0.5.2.md`. Review
 the draft and its attached archive and checksum before publishing it.
 
 ```bash
 git push origin main
-git tag -a v0.5.1 -m "Omarchy Watch v0.5.1"
-git push origin v0.5.1
+git tag -a v0.5.2 -m "Omarchy Watch v0.5.2"
+git push origin v0.5.2
 ```
 
 Keep `main` unchanged while the marketplace submission is under review. The
