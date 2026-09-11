@@ -1,113 +1,79 @@
 # Omarchy Watch
 
-An Omarchy companion for the Waveshare ESP32-S3-Touch-AMOLED-2.06. The first
-checkpoint is intentionally small: a polished watch face, secure Bluetooth
-pairing, and a dependable Omarchy-synchronized face that survives normal
-restarts.
+An Omarchy companion smartwatch for the Waveshare ESP32-S3-Touch-AMOLED-2.06.
+
+![Omarchy Watch synchronized with an Omarchy desktop](docs/images/omarchy-watch-hero.webp)
 
 This is an independent community project, not an official Omarchy project.
 
-![Plain 01 watch face](docs/images/plain-01.png)
+## Key features
 
-## v0.4 checkpoint
+- A carefully crafted watch face built around JetBrains Mono, familiar Omarchy
+  glyphs, and the desktop's restrained visual language.
+- Date, time, and weather from your desktop top bar.
+- Color scheme automatically synced to your current Omarchy theme.
+- At-a-glance agent status and task-completion alerts (Codex-only for now).
 
-- Plain 01 watch face at the display's native 410 x 502 resolution
-- compact date/battery header, dominant clock, live weather, and
-  location footer in JetBrains Mono
-- live AXP2101 battery level and charging state
-- foreground-colored battery status with tap-to-reveal exact percentage;
-  charging alone promotes the battery and bolt to the theme accent
-- deterministic desktop previews rendered by the same LVGL layout as firmware
-- authenticated Bluetooth LE pairing using the six-digit code on the watch
-- persistent watch and desktop identities; pairing is a one-time setup
-- automatic time, UTC offset, and 12/24-hour synchronization from Omarchy
-- automatic background, foreground, and accent synchronization from the
-  resolved Omarchy theme; the face matches the desktop bar surface while its
-  clock carries the theme's primary highlight
-- current conditions, daily high/low, units, and location from Omarchy's
-  canonical weather setting, refreshed every 15 minutes and cached offline
-- board RTC restore at boot, with an honest unsynchronized state if its time
-  cannot be trusted
-- Omarchy bar panel for discovery, pairing, connection status, brightness, and
-  manual sync
-- 50% default active brightness, a 15-second touch-wake display timeout, CPU
-  frequency scaling, automatic light sleep, and Bluetooth modem sleep
-- persistent encrypted BLE companionship with a low-duty idle connection,
-  automatic reconnect after link loss, and no handshake for each update
-- five-second, low-battery-aware previews for prompt theme and brightness
-  changes; periodic weather and time updates stay dark
-- Codex turn activity through official lifecycle hooks: Omarchy's robot glyph
-  stays static while work runs, then the watch wakes, plays a toggleable chime,
-  and gently bounces until the result is acknowledged; GPIO18 remains available
-  for an optional vibration motor
-- revisioned activity snapshots and a minimal completion ledger preserve
-  acknowledgements across BLE loss without storing prompts or responses
+<p align="center">
+  <img src="docs/images/omarchy-watch-on-wrist.webp" width="560" alt="Omarchy Watch on a wrist with the pink Omarchy theme">
+</p>
 
-The simulator keeps a deterministic San Francisco/Solitude fixture for pixel
-comparisons; firmware receives live values in the version 3 effective profile.
+## Install
 
-## Product boundary
+For now, the firmware is built from source. A prebuilt release image is planned
+for launch.
 
-The watch inherits useful context from Omarchy without mirroring the desktop
-UI. The desktop resolves defaults and future overrides into a complete,
-versioned profile; the firmware stores that effective profile and stays useful
-when the computer is away.
+### 1. Build and flash the watch
 
-An owned watch has three truthful boot outcomes:
-
-1. A valid RTC and cached profile render the face immediately.
-2. A lost or invalid RTC shows `TIME NOT SET` while the existing Bluetooth bond
-   reconnects and repairs it automatically.
-3. A watch with no owner shows its pairing code.
-
-See [the design notes](docs/design.md) and
-[connectivity contract](docs/connectivity.md) for the decisions and evolution
-constraints behind this split.
-
-## Repository
-
-- `firmware/` — ESP-IDF firmware for the Waveshare board
-- `desktop/` — BlueZ bridge, command-line client, and Omarchy shell plugin
-- `simulator/` — native LVGL renderer for exact, deterministic face previews
-- `prototype/` — early browser sketches retained as design history
-- `docs/` — product, UI, pairing, and protocol decisions
-- `tools/` — preview and font-generation commands
-
-Build and installation details live in `firmware/README.md` and
-`desktop/README.md`.
-
-## Render the watch face
-
-The face layout is shared by the firmware and a small host renderer. After
-ESP-IDF has downloaded the managed LVGL dependency, render the exact RGB565
-layout without connecting a watch:
+Install ESP-IDF 5.5.x, then:
 
 ```bash
 cd firmware
 . /path/to/esp-idf/export.sh
-idf.py reconfigure
-cd ..
-./tools/render-watchface.sh
+idf.py build
+idf.py -p /dev/ttyACM0 flash
 ```
 
-The command writes square and rounded PNGs under `simulator/output/`. See the
-[simulator guide](simulator/README.md) for host dependencies and the boundary
-between deterministic previews and physical-display validation.
+See the [firmware guide](firmware/README.md) for complete setup and flashing
+details.
 
-## Direction after v0.4
+### 2. Install the Omarchy companion
 
-The next coherent slice can widen the generic activity adapter to other agents,
-then add notifications, media controls, and explicit follow-or-override
-settings. Additional faces and seasonal timezone rules can build on the same
-effective-profile foundation.
+From the repository root:
 
-Longer-term possibilities include a deeper Omarchy companion, agent-generated
-watch software, daily-watch fundamentals, and ports to hardware such as
-Pebble. The first version remains a focused prototype, not a smartwatch OS.
+```bash
+./desktop/install-local.sh
+```
+
+The installer adds the desktop bridge, Omarchy bar widget, and Codex lifecycle
+hooks without requiring root. Open `/hooks` in Codex and trust the Omarchy
+Watch entries before starting a new session.
+
+### 3. Pair
+
+Open Omarchy Watch from the top bar and enter the six-digit code shown on the
+watch. Pairing is only required once.
+
+## Agent status and alerts
+
+An Omarchy robot appears while Codex is working. When a turn finishes, the
+watch wakes, plays an optional chime, and gently bounces the robot. The alert
+remains until you acknowledge it with a tap—letting you step away and make a
+cup of coffee instead of watching the terminal.
+
+The integration uses Codex lifecycle hooks but never reads your prompts,
+responses, or transcripts.
+
+## More details
+
+- [Firmware](firmware/README.md) — build, flash, power, and boot behavior
+- [Desktop companion](desktop/README.md) — requirements, settings, and diagnostics
+- [Design](docs/design.md) — watch-face and product decisions
+- [Connectivity](docs/connectivity.md) — secure pairing and Bluetooth protocol
+- [Simulator](simulator/README.md) — deterministic watch-face previews
 
 ## License
 
 Project code and design assets are available under the [MIT License](LICENSE).
-Generated LVGL font subsets retain their upstream terms; see
-[third-party notices](THIRD_PARTY_NOTICES.md) and the included
-[SIL Open Font License 1.1](firmware/main/fonts-OFL.txt).
+Generated fonts retain their upstream terms; see
+[third-party notices](THIRD_PARTY_NOTICES.md).
