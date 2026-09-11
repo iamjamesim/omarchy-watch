@@ -10,6 +10,16 @@ unit_dir=${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user
 plugin_dir=${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/plugins/io.github.iamjamesim.omarchy-watch
 plugin_id=io.github.iamjamesim.omarchy-watch
 
+wait_for_shell() {
+  for _ in {1..40}; do
+    if omarchy-shell shell listPlugins >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.25
+  done
+  return 1
+}
+
 for command in omarchy omarchy-shell jq systemctl python3; do
   command -v "$command" >/dev/null || {
     echo "Required command not found: $command" >&2
@@ -50,6 +60,13 @@ systemctl --user is-active --quiet omarchy-watch.service
 
 # Refresh the registry after every file is in place, then use Omarchy's
 # supported shell restart to discard compiled QML from the previous install.
+if ! wait_for_shell; then
+  omarchy restart shell || true
+  wait_for_shell || {
+    echo "Omarchy shell did not become ready before plugin refresh." >&2
+    exit 1
+  }
+fi
 omarchy-shell shell rescanPlugins >/dev/null
 plugins=$(omarchy-shell shell listPlugins)
 if ! jq -e --arg id "$plugin_id" \
@@ -58,15 +75,7 @@ if ! jq -e --arg id "$plugin_id" \
 fi
 omarchy restart shell || true
 
-shell_ready=false
-for _ in {1..20}; do
-  if omarchy-shell shell listPlugins >/dev/null 2>&1; then
-    shell_ready=true
-    break
-  fi
-  sleep 0.25
-done
-if [[ $shell_ready != true ]]; then
+if ! wait_for_shell; then
   echo "Omarchy shell did not become ready after restart." >&2
   exit 1
 fi

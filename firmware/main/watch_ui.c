@@ -42,6 +42,7 @@ static lv_timer_t *battery_percentage_timer;
 static lv_timer_t *display_timer;
 static bool face_visible;
 static bool display_awake = true;
+static bool pairing_visible;
 static bool battery_percentage_visible;
 static bool battery_percentage_available;
 static bool ble_connected;
@@ -225,6 +226,7 @@ static lv_obj_t *reset_screen(void)
     lv_obj_clear_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
 
     face_visible = false;
+    pairing_visible = false;
     if (clock_timer != NULL) {
         lv_timer_delete(clock_timer);
         clock_timer = NULL;
@@ -425,7 +427,7 @@ static void display_sleep(lv_timer_t *timer)
 {
     (void)timer;
     display_timer = NULL;
-    if (!display_awake) {
+    if (!display_awake || pairing_visible) {
         return;
     }
     bsp_display_brightness_set(0);
@@ -442,6 +444,10 @@ static void arm_display_timeout(uint32_t timeout_ms)
     }
     if (display_timer != NULL) {
         lv_timer_delete(display_timer);
+        display_timer = NULL;
+    }
+    if (pairing_visible) {
+        return;
     }
     display_timer = lv_timer_create(display_sleep, timeout_ms, NULL);
     lv_timer_set_repeat_count(display_timer, 1);
@@ -534,6 +540,7 @@ void watch_ui_show_pairing(uint32_t passkey)
 
     bsp_display_lock(0);
     lv_obj_t *screen = reset_screen();
+    pairing_visible = true;
 
     lv_obj_t *eyebrow = make_label(screen, "PAIR WITH OMARCHY", &jetbrains_mono_27);
     lv_obj_set_style_text_letter_space(eyebrow, 1, 0);

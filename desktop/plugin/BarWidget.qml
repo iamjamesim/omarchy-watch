@@ -23,14 +23,17 @@ Panel {
     message: "Watch service is not running"
   })
   property string actionError: ""
+  property string autoOpenedCandidate: ""
 
   readonly property string ctlPath: String(setting("ctlPath", "omarchy-watchctl"))
   readonly property string statePath: (Quickshell.env("XDG_STATE_HOME")
     || Quickshell.env("HOME") + "/.local/state") + "/omarchy-watch/status.json"
   readonly property string status: String(watchState.status || "stopped")
-  readonly property bool found: ["found", "pairing", "paired", "syncing", "ready", "error", "disconnected", "bluetooth-off"].indexOf(status) >= 0
   readonly property bool needsPairing: !Boolean(watchState.paired)
-    && ["found", "pairing", "error"].indexOf(status) >= 0
+    && (status === "found" || status === "pairing"
+      || (status === "error" && String(watchState.name || "") !== ""))
+  readonly property bool searching: !Boolean(watchState.paired) && !needsPairing
+    && ["starting", "stopped", "discovering", "unavailable", "bluetooth-off", "error"].indexOf(status) >= 0
   readonly property bool owned: !needsPairing && Boolean(watchState.paired || watchState.watchOwned)
   readonly property bool ready: status === "ready"
   readonly property bool pending: String(watchState.desiredRevision || "") !== ""
@@ -44,7 +47,7 @@ Panel {
   readonly property color dim: Qt.darker(foreground, 1.45)
   readonly property string fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
 
-  visible: found && (status !== "bluetooth-off" || owned)
+  visible: true
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
@@ -55,6 +58,15 @@ Panel {
       if (Number(parsed.schema) !== 1) throw new Error("Unsupported status schema")
       watchState = parsed
       root.actionError = ""
+      var candidate = String(parsed.address || "")
+      if (parsed.status === "found" && !Boolean(parsed.paired)
+          && candidate !== "" && candidate !== autoOpenedCandidate) {
+        autoOpenedCandidate = candidate
+        Qt.callLater(function() {
+          root.open()
+          codeField.forceActiveFocus()
+        })
+      }
       if ((parsed.status === "found" || parsed.status === "error")
           && previousStatus === "pairing") {
         codeField.text = ""
@@ -137,7 +149,10 @@ Panel {
     owner: root
     bar: root.bar
     open: root.opened
-    focusTarget: codeField.visible ? codeField : recoveryButton.visible ? recoveryButton : syncButton
+    focusTarget: codeField.visible ? codeField
+      : scanButton.visible ? scanButton
+      : recoveryButton.visible ? recoveryButton
+      : syncButton
     contentWidth: panel.fittedContentWidth(Style.space(320))
     contentHeight: panel.fittedContentHeight(content.implicitHeight)
 
@@ -145,6 +160,7 @@ Panel {
       id: content
       width: parent.width
       spacing: Style.space(14)
+      Keys.onEscapePressed: root.close()
 
       RowLayout {
         Layout.fillWidth: true
@@ -194,6 +210,36 @@ Panel {
       }
 
       PanelSeparator { Layout.fillWidth: true }
+
+      ColumnLayout {
+        visible: root.searching
+        Layout.fillWidth: true
+        spacing: Style.space(10)
+
+        Text {
+          Layout.fillWidth: true
+          textFormat: Text.PlainText
+          text: String(root.watchState.message || "Looking for an Omarchy Watch")
+          color: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.body
+          horizontalAlignment: Text.AlignHCenter
+          wrapMode: Text.WordWrap
+        }
+
+        Button {
+          id: scanButton
+          visible: root.status !== "bluetooth-off"
+          Layout.fillWidth: true
+          text: root.busy ? "SCANNING" : "SCAN AGAIN"
+          bordered: true
+          focusable: true
+          enabled: !root.busy
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          onClicked: root.run(["rescan"])
+        }
+      }
 
       ColumnLayout {
         visible: root.needsPairing && root.status !== "pairing"

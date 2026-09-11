@@ -7,9 +7,10 @@ diagnostics, and recovery; it is not an ownership shortcut.
 
 1. An unowned watch advertises the Omarchy Watch service and displays a
    randomly generated six-digit passkey.
-2. The desktop bridge discovers the service. Its bar widget appears only when
-   a watch is nearby or already owned.
-3. The user enters the displayed passkey in the bar panel.
+2. The installed desktop bridge discovers the service and automatically opens
+   its persistent bar panel for the newly found watch.
+3. The user enters the displayed passkey in that panel, not in Omarchy's
+   general Bluetooth panel or `bluetoothctl`.
 4. BlueZ and NimBLE create an authenticated LE Secure Connections bond.
 5. Across that encrypted link, the desktop sends the newest mutually supported
    effective-profile version (currently version 3), including its persistent

@@ -82,6 +82,18 @@ trust the Omarchy Watch entries before starting a new session.
 
 Re-run the command after changing desktop source files.
 
+## Pair a new watch
+
+Do not start in Omarchy's general Bluetooth panel or pair with `bluetoothctl`.
+The desktop bridge must own the pairing transaction so it can verify the
+six-digit passkey and establish the watch owner identity.
+
+After the firmware starts on an unowned watch, the Omarchy Watch panel opens
+automatically and focuses its code field. Enter the code displayed on the
+watch and select **Pair**. If the watch is not found, use **Scan Again** in
+that same panel. The watch icon and pairing panel remain available while the
+bridge is searching.
+
 ## Remove
 
 From the repository root:

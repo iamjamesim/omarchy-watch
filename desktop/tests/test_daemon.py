@@ -63,6 +63,7 @@ class ConnectionStateTests(unittest.TestCase):
         watch.write_state.assert_called_once_with(
             status="found", name="Omarchy Watch",
             address="28:84:85:B4:F2:6A", paired=False, connected=False,
+            watchOwned=False,
             message="Ready to pair",
         )
 
@@ -73,14 +74,55 @@ class ConnectionStateTests(unittest.TestCase):
         watch.refresh_devices = mock.Mock(return_value=True)
         watch.refresh_devices.side_effect = lambda: setattr(watch, "device_path", "") or True
         watch.update_property_receivers = mock.Mock()
-        watch.start_discovery = mock.Mock()
+        watch.schedule_discovery_restart = mock.Mock()
 
-        with mock.patch.object(daemon.GLib, "idle_add") as idle_add:
-            watch.on_interfaces_removed(
-                "/org/bluez/hci0/dev_watch", [daemon.DEVICE]
-            )
+        watch.on_interfaces_removed(
+            "/org/bluez/hci0/dev_watch", [daemon.DEVICE]
+        )
 
-        idle_add.assert_called_once_with(watch.start_discovery)
+        watch.schedule_discovery_restart.assert_called_once_with()
+
+    def test_discovery_restarts_when_bluez_stops_scanning(self):
+        watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
+        watch.connect_inflight = False
+        watch.discovery_active = True
+        watch.schedule_discovery_restart = mock.Mock()
+
+        watch.on_properties_changed(
+            daemon.ADAPTER, {"Discovering": dbus.Boolean(False)}, []
+        )
+
+        self.assertFalse(watch.discovery_active)
+        watch.schedule_discovery_restart.assert_called_once_with()
+
+    def test_rescan_forces_a_new_discovery_session(self):
+        watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
+        watch.schedule_discovery_restart = mock.Mock()
+
+        watch.handle_command({"command": "rescan"})
+
+        watch.schedule_discovery_restart.assert_called_once_with()
+
+    def test_discovery_avoids_bluez_587_uuid_filter_crash(self):
+        watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
+        watch.adapter_path = "/org/bluez/hci0"
+        watch.device_path = ""
+        watch.current_device_properties = {}
+        watch.discovery_active = False
+        watch.refresh_devices = mock.Mock(return_value=True)
+        watch.ensure_gatt_profile_registered = mock.Mock()
+        watch.update_property_receivers = mock.Mock()
+        watch.bluez_object = mock.Mock(return_value=mock.sentinel.adapter)
+        adapter = mock.Mock()
+
+        with mock.patch.object(daemon.dbus, "Interface", return_value=adapter):
+            watch.start_discovery()
+
+        discovery_filter = adapter.SetDiscoveryFilter.call_args.args[0]
+        self.assertEqual(str(discovery_filter["Transport"]), "le")
+        self.assertNotIn("UUIDs", discovery_filter)
+        adapter.StartDiscovery.assert_called_once_with()
+        self.assertTrue(watch.discovery_active)
 
     def test_in_progress_manual_connection_is_left_to_bluez(self):
         class InProgress(dbus.DBusException):
@@ -155,6 +197,7 @@ class ConnectionStateTests(unittest.TestCase):
         watch.write_state.assert_called_once_with(
             status="disconnected", name="Omarchy Watch",
             address="28:84:85:B4:F2:6A", paired=True, connected=False,
+            watchOwned=False,
             message="Waiting for watch to reconnect",
         )
         idle_add.assert_not_called()

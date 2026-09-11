@@ -526,6 +526,7 @@ class WatchDaemon:
         self.pending_agent_completions: dict[str, int] = {}
         self.identity_verified = False
         self.discovery_active = False
+        self.discovery_restart_source = 0
         self.context_refresh_inflight = False
         self.context_refresh_source = 0
         self.context_monitors = []
@@ -1015,7 +1016,8 @@ class WatchDaemon:
             self.current_device_properties = {}
             self.write_state(
                 status="discovering", name="", address="", paired=False,
-                connected=False, message="Looking for an Omarchy Watch",
+                connected=False, watchOwned=False,
+                message="Looking for an Omarchy Watch",
             )
             return True
 
@@ -1060,6 +1062,7 @@ class WatchDaemon:
             address=properties.get("Address", ""),
             paired=paired,
             connected=connected,
+            watchOwned=self.state.get("watchOwned", False) if paired else False,
             message=message,
         )
         if paired:
@@ -1082,8 +1085,10 @@ class WatchDaemon:
         adapter = self.bluez_object(self.adapter_path)
         interface = dbus.Interface(adapter, ADAPTER)
         try:
+            # BlueZ 5.87 crashes in is_filter_match() when a UUID-filtered
+            # discovery receives a matching advertisement. Limit discovery to
+            # LE here and apply the service/name check in is_watch() instead.
             interface.SetDiscoveryFilter({
-                "UUIDs": dbus.Array([SERVICE_UUID], signature="s"),
                 "Transport": dbus.String("le"),
                 "DuplicateData": dbus.Boolean(False),
             })
@@ -1118,6 +1123,14 @@ class WatchDaemon:
                     f"Stopping discovery returned {error.get_dbus_name()}: "
                     f"{error.get_dbus_message()}"
                 )
+
+    def schedule_discovery_restart(self) -> None:
+        if self.discovery_restart_source or self.pending_passkey is not None:
+            return
+        if self.device_path and self.current_device_properties.get("Paired"):
+            return
+        self.stop_discovery()
+        self.discovery_restart_source = GLib.timeout_add(250, self.restart_discovery)
 
     def register_agent(self) -> None:
         manager_object = self.bluez_object("/org/bluez")
@@ -1157,21 +1170,24 @@ class WatchDaemon:
             can_discover = self.refresh_devices()
             self.update_property_receivers()
             if device_removed and can_discover and not self.device_path:
-                GLib.idle_add(self.start_discovery)
+                self.schedule_discovery_restart()
 
     def on_properties_changed(self, interface, changed, invalidated, path=None) -> None:
         if interface == ADAPTER:
             self.connect_inflight = False
             adapter_changes = plain(changed)
-            if "Powered" not in adapter_changes:
-                return
-            if bool(adapter_changes["Powered"]):
-                GLib.idle_add(self.start_discovery)
-            else:
-                self.write_state(
-                    status="bluetooth-off", connected=False,
-                    message="Bluetooth is off",
-                )
+            if "Powered" in adapter_changes:
+                if bool(adapter_changes["Powered"]):
+                    self.schedule_discovery_restart()
+                else:
+                    self.discovery_active = False
+                    self.write_state(
+                        status="bluetooth-off", connected=False,
+                        message="Bluetooth is off",
+                    )
+            if "Discovering" in adapter_changes and not bool(adapter_changes["Discovering"]):
+                self.discovery_active = False
+                self.schedule_discovery_restart()
             return
         if interface != DEVICE or not path:
             return
@@ -1226,6 +1242,7 @@ class WatchDaemon:
         GLib.timeout_add(500, self.restart_discovery)
 
     def restart_discovery(self) -> bool:
+        self.discovery_restart_source = 0
         self.start_discovery()
         self.update_property_receivers()
         return False
@@ -1818,7 +1835,7 @@ class WatchDaemon:
             self.force_sync_requested = True
             self.ensure_connection("manual sync")
         elif action == "rescan":
-            self.start_discovery()
+            self.schedule_discovery_restart()
         elif action == "brightness":
             try:
                 brightness = int(command.get("value"))

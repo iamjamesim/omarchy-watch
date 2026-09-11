@@ -27,7 +27,7 @@ not a waterproof consumer watch.
 
 ### 1. Flash the watch
 
-Download `omarchy-watch-v0.5.0-flash.tar.gz` from the
+Download `omarchy-watch-v0.5.1-flash.tar.gz` from the
 [latest release](https://github.com/iamjamesim/omarchy-watch/releases/latest),
 extract it, connect the board's USB-C programming port, and run:
 
@@ -56,8 +56,13 @@ Watch entries before starting a new session.
 
 ### 3. Pair
 
-Open Omarchy Watch from the top bar and enter the six-digit code shown on the
-watch. Pairing is only required once.
+Do not pair from Omarchy's general Bluetooth panel or from `bluetoothctl`.
+The Omarchy Watch companion owns the secure setup flow. When it discovers an
+unpaired watch, its top-bar panel opens automatically and focuses the code
+field. Enter the six-digit code shown on the watch and select **Pair**.
+
+If discovery takes longer than expected, open the persistent watch icon and
+select **Scan Again**. Pairing is only required once.
 
 ## Update
 
