@@ -11,7 +11,7 @@ Panel {
   moduleName: "io.github.iamjamesim.omarchy-watch"
   ipcTarget: "omarchy.watch"
 
-  property var state: ({
+  property var watchState: ({
     schema: 1,
     status: "stopped",
     name: "",
@@ -27,22 +27,22 @@ Panel {
   readonly property string ctlPath: String(setting("ctlPath", "omarchy-watchctl"))
   readonly property string statePath: (Quickshell.env("XDG_STATE_HOME")
     || Quickshell.env("HOME") + "/.local/state") + "/omarchy-watch/status.json"
-  readonly property string status: String(state.status || "stopped")
+  readonly property string status: String(watchState.status || "stopped")
   readonly property bool found: ["found", "pairing", "paired", "syncing", "ready", "error", "disconnected", "bluetooth-off"].indexOf(status) >= 0
-  readonly property bool needsPairing: !Boolean(state.paired)
+  readonly property bool needsPairing: !Boolean(watchState.paired)
     && ["found", "pairing", "error"].indexOf(status) >= 0
-  readonly property bool owned: !needsPairing && Boolean(state.paired || state.watchOwned)
+  readonly property bool owned: !needsPairing && Boolean(watchState.paired || watchState.watchOwned)
   readonly property bool ready: status === "ready"
-  readonly property bool pending: String(state.desiredRevision || "") !== ""
-    && String(state.desiredRevision || "") !== String(state.syncedRevision || "")
+  readonly property bool pending: String(watchState.desiredRevision || "") !== ""
+    && String(watchState.desiredRevision || "") !== String(watchState.syncedRevision || "")
   readonly property bool recovering: owned && !ready && status !== "syncing" && status !== "paired"
   readonly property bool busy: status === "pairing" || status === "syncing" || command.running
-  readonly property bool brightnessAvailable: Number(state.protocol || 0) >= 3
-    && (Number(state.capabilities || 0) & 32) !== 0
-  readonly property bool soundAvailable: (Number(state.capabilities || 0) & 128) !== 0
-  readonly property color foreground: bar ? bar.foreground : Color.foreground
+  readonly property bool brightnessAvailable: Number(watchState.protocol || 0) >= 3
+    && (Number(watchState.capabilities || 0) & 32) !== 0
+  readonly property bool soundAvailable: (Number(watchState.capabilities || 0) & 128) !== 0
+  readonly property color foreground: root.bar ? root.bar.foreground : Color.foreground
   readonly property color dim: Qt.darker(foreground, 1.45)
-  readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
+  readonly property string fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
 
   visible: found && (status !== "bluetooth-off" || owned)
   implicitWidth: button.implicitWidth
@@ -53,15 +53,15 @@ Panel {
       var previousStatus = status
       var parsed = JSON.parse(raw)
       if (Number(parsed.schema) !== 1) throw new Error("Unsupported status schema")
-      state = parsed
-      actionError = ""
+      watchState = parsed
+      root.actionError = ""
       if ((parsed.status === "found" || parsed.status === "error")
           && previousStatus === "pairing") {
         codeField.text = ""
         if (opened) Qt.callLater(function() { codeField.forceActiveFocus() })
       }
     } catch (error) {
-      state = {
+      watchState = {
         schema: 1,
         status: "error",
         name: "Omarchy Watch",
@@ -72,7 +72,7 @@ Panel {
 
   function run(arguments) {
     if (command.running) return
-    actionError = ""
+    root.actionError = ""
     command.command = [ctlPath].concat(arguments)
     command.running = true
   }
@@ -80,7 +80,7 @@ Panel {
   function submitCode() {
     var digits = codeField.text.replace(/\s/g, "")
     if (!/^\d{6}$/.test(digits)) {
-      actionError = "Enter all six digits shown on the watch"
+      root.actionError = "Enter all six digits shown on the watch"
       return
     }
     run(["pair", digits])
@@ -116,7 +116,7 @@ Panel {
     command: []
     stderr: StdioCollector { id: commandError; waitForEnd: true }
     onExited: function(exitCode) {
-      if (exitCode !== 0) actionError = String(commandError.text || "Watch command failed").trim()
+      if (exitCode !== 0) root.actionError = String(commandError.text || "Watch command failed").trim()
       stateFile.reload()
     }
   }
@@ -164,7 +164,7 @@ Panel {
           Text {
             Layout.fillWidth: true
             textFormat: Text.PlainText
-            text: String(root.state.name || "OMARCHY WATCH")
+            text: String(root.watchState.name || "OMARCHY WATCH")
             color: root.foreground
             font.family: root.fontFamily
             font.pixelSize: Style.font.title
@@ -244,7 +244,7 @@ Panel {
         Text {
           Layout.fillWidth: true
           textFormat: Text.PlainText
-          text: String(root.state.message || "Finishing setup")
+          text: String(root.watchState.message || "Finishing setup")
           color: root.foreground
           font.family: root.fontFamily
           font.pixelSize: Style.font.body
@@ -269,7 +269,7 @@ Panel {
         Text {
           Layout.fillWidth: true
           textFormat: Text.PlainText
-          text: String(root.state.message || "Watch is temporarily unavailable")
+          text: String(root.watchState.message || "Watch is temporarily unavailable")
           color: root.foreground
           font.family: root.fontFamily
           font.pixelSize: Style.font.body
@@ -316,7 +316,7 @@ Panel {
           Item { Layout.fillWidth: true }
 
           Text {
-            text: root.pending ? "WAITING TO SYNC" : root.relativeSync(root.state.lastSynced)
+            text: root.pending ? "WAITING TO SYNC" : root.relativeSync(root.watchState.lastSynced)
             color: root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
@@ -377,7 +377,7 @@ Panel {
           maximum: 100
           step: 5
           integer: true
-          value: Number(root.state.brightness || 50)
+          value: Number(root.watchState.brightness || 50)
           enabled: !root.busy
           onReleased: function(value) {
             root.run(["brightness", String(Math.round(value))])
@@ -410,11 +410,11 @@ Panel {
           Item { Layout.fillWidth: true }
 
           ToggleSwitch {
-            checked: Boolean(root.state.completionSound)
+            checked: Boolean(root.watchState.completionSound)
             busy: root.busy
             foreground: root.foreground
             onToggled: root.run([
-              "sound", Boolean(root.state.completionSound) ? "off" : "on"
+              "sound", Boolean(root.watchState.completionSound) ? "off" : "on"
             ])
           }
         }
@@ -439,8 +439,8 @@ Panel {
         visible: root.actionError !== "" || (!root.owned && root.status === "error")
         Layout.fillWidth: true
         textFormat: Text.PlainText
-        text: root.actionError !== "" ? root.actionError : String(root.state.message || "Pairing failed")
-        color: bar ? bar.urgent : Color.urgent
+        text: root.actionError !== "" ? root.actionError : String(root.watchState.message || "Pairing failed")
+        color: root.bar ? root.bar.urgent : Color.urgent
         font.family: root.fontFamily
         font.pixelSize: Style.font.bodySmall
         wrapMode: Text.WordWrap

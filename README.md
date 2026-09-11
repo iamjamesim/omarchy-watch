@@ -1,6 +1,7 @@
 # Omarchy Watch
 
-An Omarchy companion smartwatch for the Waveshare ESP32-S3-Touch-AMOLED-2.06.
+An Omarchy companion smartwatch for the
+[Waveshare ESP32-S3-Touch-AMOLED-2.06](https://www.waveshare.com/wiki/ESP32-S3-Touch-AMOLED-2.06).
 
 ![Omarchy Watch synchronized with an Omarchy desktop](docs/images/omarchy-watch-hero.webp)
 
@@ -20,28 +21,32 @@ _This is an independent community project, not an official Omarchy project._
 
 ## Install
 
-For now, the firmware is built from source. A prebuilt release image is planned
-for launch.
+Omarchy Watch requires Omarchy 4.0 or newer, Bluetooth LE, and the exact
+Waveshare ESP32-S3-Touch-AMOLED-2.06 board. The board is development hardware,
+not a waterproof consumer watch.
 
-### 1. Build and flash the watch
+### 1. Flash the watch
 
-Install ESP-IDF 5.5.x, then:
+Download `omarchy-watch-v0.5.0-flash.tar.gz` from the
+[latest release](https://github.com/iamjamesim/omarchy-watch/releases/latest),
+extract it, connect the board's USB-C programming port, and run:
 
 ```bash
-cd firmware
-. /path/to/esp-idf/export.sh
-idf.py build
-idf.py -p /dev/ttyACM0 flash
+./flash.sh /dev/ttyACM0
 ```
 
-See the [firmware guide](firmware/README.md) for complete setup and flashing
-details.
+The release bundle requires Espressif's `esptool`. It writes the bootloader,
+partition table, and application separately so firmware upgrades preserve the
+watch's pairing and settings. See the [firmware guide](firmware/README.md) for
+source builds, recovery, and complete flashing details.
 
 ### 2. Install the Omarchy companion
 
-From the repository root:
+Clone the repository, then run its installer:
 
 ```bash
+git clone https://github.com/iamjamesim/omarchy-watch.git
+cd omarchy-watch
 ./desktop/install-local.sh
 ```
 
@@ -53,6 +58,32 @@ Watch entries before starting a new session.
 
 Open Omarchy Watch from the top bar and enter the six-digit code shown on the
 watch. Pairing is only required once.
+
+## Update
+
+Update the desktop companion from its checkout:
+
+```bash
+git pull --ff-only
+./desktop/install-local.sh
+```
+
+Flash the three-file bundle from the newest tagged release to update the watch
+without erasing its bond or settings.
+
+## Remove
+
+From the repository checkout:
+
+```bash
+./desktop/uninstall-local.sh
+```
+
+Removal stops the bridge and removes its commands, panel, service, and Codex
+hook entries. Pairing identity, settings, and cached state are deliberately
+preserved so a reinstall can reconnect. A complete factory reset requires
+erasing the watch and removing its corresponding device from BlueZ; see the
+[firmware guide](firmware/README.md#flash).
 
 ## Agent status and alerts
 

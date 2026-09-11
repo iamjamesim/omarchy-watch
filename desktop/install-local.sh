@@ -3,20 +3,44 @@
 set -euo pipefail
 
 source_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+repo_dir=$(cd "$source_dir/.." && pwd)
 lib_dir=$HOME/.local/lib/omarchy-watch
 bin_dir=$HOME/.local/bin
 unit_dir=${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user
 plugin_dir=${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/plugins/io.github.iamjamesim.omarchy-watch
 plugin_id=io.github.iamjamesim.omarchy-watch
 
-omarchy plugin validate "$source_dir/plugin"
-mkdir -p "$lib_dir" "$bin_dir" "$unit_dir" "$plugin_dir"
+for command in omarchy omarchy-shell jq systemctl python3; do
+  command -v "$command" >/dev/null || {
+    echo "Required command not found: $command" >&2
+    exit 1
+  }
+done
+
+omarchy_version=$(omarchy version)
+omarchy_major=${omarchy_version%%.*}
+if [[ ! $omarchy_major =~ ^[0-9]+$ ]] || ((omarchy_major < 4)); then
+  echo "Omarchy 4.0 or newer is required (found: $omarchy_version)." >&2
+  exit 1
+fi
+
+python3 -c 'import dbus, gi' >/dev/null || {
+  echo "Python dbus-python and PyGObject are required." >&2
+  exit 1
+}
+
+"$repo_dir/tools/validate-plugin.sh"
+mkdir -p "$lib_dir" "$bin_dir" "$unit_dir" "$plugin_dir/desktop/plugin"
 install -m 0755 "$source_dir/daemon/omarchy_watchd.py" "$lib_dir/omarchy_watchd.py"
 install -m 0755 "$source_dir/bin/omarchy-watchctl" "$bin_dir/omarchy-watchctl"
 install -m 0755 "$source_dir/bin/omarchy-watch-agent-hook" "$bin_dir/omarchy-watch-agent-hook"
 install -m 0644 "$source_dir/systemd/omarchy-watch.service" "$unit_dir/omarchy-watch.service"
-install -m 0644 "$source_dir/plugin/manifest.json" "$plugin_dir/manifest.json"
-install -m 0644 "$source_dir/plugin/Panel.qml" "$plugin_dir/Panel.qml"
+if [[ $repo_dir != "$plugin_dir" ]]; then
+  install -m 0644 "$repo_dir/manifest.json" "$plugin_dir/manifest.json"
+  install -m 0644 "$source_dir/plugin/BarWidget.qml" "$plugin_dir/desktop/plugin/BarWidget.qml"
+  rm -f "$plugin_dir/Panel.qml"
+  rm -f "$plugin_dir/desktop/plugin/Panel.qml"
+fi
 "$source_dir/install-codex-hooks.py"
 
 systemctl --user daemon-reload
@@ -32,7 +56,20 @@ if ! jq -e --arg id "$plugin_id" \
   'any(.[]; .id == $id and .enabled == true)' <<<"$plugins" >/dev/null; then
   omarchy plugin enable "$plugin_id" --section right
 fi
-omarchy restart shell
+omarchy restart shell || true
+
+shell_ready=false
+for _ in {1..20}; do
+  if omarchy-shell shell listPlugins >/dev/null 2>&1; then
+    shell_ready=true
+    break
+  fi
+  sleep 0.25
+done
+if [[ $shell_ready != true ]]; then
+  echo "Omarchy shell did not become ready after restart." >&2
+  exit 1
+fi
 
 echo "Omarchy Watch panel reloaded."
 echo "Codex activity hooks installed. Review and trust them with /hooks in Codex."

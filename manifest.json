@@ -10,7 +10,7 @@
     "bar-widget"
   ],
   "entryPoints": {
-    "barWidget": "Panel.qml"
+    "barWidget": "desktop/plugin/BarWidget.qml"
   },
   "barWidget": {
     "displayName": "Omarchy Watch",

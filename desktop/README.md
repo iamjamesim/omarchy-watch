@@ -10,7 +10,7 @@ The desktop side has two parts separated by a small file/command boundary:
 
 ## Requirements
 
-- Omarchy with the user plugin system
+- Omarchy 4.0 or newer
 - BlueZ and a Bluetooth LE adapter
 - Python 3 with `dbus-python` and PyGObject/GLib
 - a running user systemd session
@@ -81,6 +81,18 @@ Codex requires review of newly installed user hooks; open `/hooks` in Codex and
 trust the Omarchy Watch entries before starting a new session.
 
 Re-run the command after changing desktop source files.
+
+## Remove
+
+From the repository root:
+
+```bash
+./desktop/uninstall-local.sh
+```
+
+The uninstaller removes only Omarchy Watch's installed files and lifecycle
+hook entries. It preserves pairing identity, preferences, state, and forecast
+cache so reinstalling can reconnect without pairing again.
 
 ## Diagnostics
 
