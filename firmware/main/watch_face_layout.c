@@ -74,14 +74,14 @@ void watch_face_layout_create(lv_obj_t *screen,
     lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
     lv_obj_clear_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
 
-    layout->date = make_label(screen, "Tue 8 Sep", &jetbrains_mono_27);
+    layout->date = make_label(screen, "", &jetbrains_mono_27);
     lv_obj_set_width(layout->date, 195);
     lv_label_set_long_mode(layout->date, LV_LABEL_LONG_CLIP);
     lv_obj_set_style_text_letter_space(layout->date, 1, 0);
     lv_obj_set_pos(layout->date, SAFE_INLINE, 60);
 
-    // U+F0080 is Nerd Fonts' Material Design Icons battery-70 fixture.
-    layout->battery = make_label(screen, "󰂀", &jetbrains_mono_30_battery);
+    // Live power telemetry supplies the battery glyph.
+    layout->battery = make_label(screen, "", &jetbrains_mono_30_battery);
     lv_obj_set_style_text_color(layout->battery, accent_color, 0);
     lv_obj_set_size(layout->battery, 44, 30);
     lv_obj_set_style_text_align(layout->battery, LV_TEXT_ALIGN_CENTER, 0);
@@ -96,8 +96,9 @@ void watch_face_layout_create(lv_obj_t *screen,
     lv_obj_set_width(layout->battery_charge, 14);
     lv_obj_set_style_text_align(layout->battery_charge, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_pos(layout->battery_charge, 335, 65);
+    lv_obj_add_flag(layout->battery_charge, LV_OBJ_FLAG_HIDDEN);
 
-    layout->battery_percentage = make_label(screen, "70%", &jetbrains_mono_22);
+    layout->battery_percentage = make_label(screen, "", &jetbrains_mono_22);
     lv_obj_set_style_text_color(layout->battery_percentage, accent_color, 0);
     lv_obj_set_width(layout->battery_percentage, 60);
     lv_obj_set_style_text_align(layout->battery_percentage, LV_TEXT_ALIGN_RIGHT, 0);
@@ -135,15 +136,16 @@ void watch_face_layout_create(lv_obj_t *screen,
     lv_obj_add_flag(layout->battery_touch, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(layout->battery_touch, LV_OBJ_FLAG_SCROLLABLE);
 
-    layout->clock = make_label(screen, "05:59", &jetbrains_mono_114);
+    layout->clock = make_label(screen, "--:--", &jetbrains_mono_114);
     lv_obj_set_style_text_color(layout->clock, accent_color, 0);
     lv_obj_set_style_text_letter_space(layout->clock, -11, 0);
     lv_label_set_long_mode(layout->clock, LV_LABEL_LONG_CLIP);
     lv_obj_set_size(layout->clock, 310, 114);
     lv_obj_set_pos(layout->clock, SAFE_INLINE - 8, 110);
 
-    layout->meridiem = make_label(screen, "PM", &jetbrains_mono_27);
+    layout->meridiem = make_label(screen, "", &jetbrains_mono_27);
     lv_obj_set_pos(layout->meridiem, 330, 120);
+    lv_obj_add_flag(layout->meridiem, LV_OBJ_FLAG_HIDDEN);
 
     // Three optically balanced compartments: time, weather, and location.
     make_rule(screen, SAFE_INLINE, TIME_RULE_Y,
@@ -151,27 +153,27 @@ void watch_face_layout_create(lv_obj_t *screen,
     make_rule(screen, SAFE_INLINE, WEATHER_RULE_Y,
               WATCH_FACE_WIDTH - (SAFE_INLINE * 2), LV_OPA_50);
 
-    // U+E302 is Nerd Fonts' partly-cloudy Weather Icons glyph.
-    layout->weather_icon = make_label(screen, "", &jetbrains_mono_48_icons);
+    // A synced profile supplies the weather glyph.
+    layout->weather_icon = make_label(screen, "", &jetbrains_mono_48_icons);
     lv_label_set_long_mode(layout->weather_icon, LV_LABEL_LONG_CLIP);
     lv_obj_set_size(layout->weather_icon, 64, 64);
     lv_obj_set_pos(layout->weather_icon, 65, 251);
 
-    layout->temperature = make_label(screen, "68°", &jetbrains_mono_42);
+    layout->temperature = make_label(screen, "--°", &jetbrains_mono_42);
     lv_obj_set_width(layout->temperature, 120);
     lv_obj_set_style_text_align(layout->temperature, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_pos(layout->temperature, 38, 312);
 
-    layout->condition = make_label(screen, "PARTLY\nCLOUDY", &jetbrains_mono_27);
+    layout->condition = make_label(screen, "WEATHER\nUNAVAILABLE", &jetbrains_mono_27);
     lv_obj_set_style_text_letter_space(layout->condition, 1, 0);
     lv_obj_set_style_text_line_space(layout->condition, 2, 0);
     lv_obj_set_pos(layout->condition, 202, 255);
 
-    layout->range = make_label(screen, "H 72°  L 61°", &jetbrains_mono_22);
+    layout->range = make_label(screen, "H --°  L --°", &jetbrains_mono_22);
     lv_obj_set_pos(layout->range, 194, 328);
 
     // U+F041 is Nerd Fonts' Font Awesome location marker.
-    layout->location = make_label(screen, " SAN FRANCISCO", &jetbrains_mono_27);
+    layout->location = make_label(screen, " LOCATION NOT SET", &jetbrains_mono_27);
     lv_obj_set_width(layout->location, 330);
     lv_obj_set_style_text_align(layout->location, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_letter_space(layout->location, 1, 0);

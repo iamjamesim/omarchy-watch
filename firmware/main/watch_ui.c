@@ -137,6 +137,9 @@ static void render_full_screen_locked(void)
 
 static void present_screen_locked(void)
 {
+    if (!display_awake) {
+        return;
+    }
     render_full_screen_locked();
     bsp_display_brightness_set(active_brightness_percent);
     arm_display_timeout(DISPLAY_TIMEOUT_MS);
