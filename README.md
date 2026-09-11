@@ -12,11 +12,11 @@ _This is an independent community project, not an official Omarchy project._
   <img src="docs/images/omarchy-watch-on-wrist.webp" width="560" alt="Omarchy Watch on a wrist with the pink Omarchy theme">
 </p>
 
-- A carefully crafted watch face built around JetBrains Mono, familiar Omarchy
-  glyphs, and the desktop's restrained visual language.
+- A carefully designed watch face using JetBrains Mono and Nerd Fonts glyphs
+  to match Omarchy's look and feel.
 - Date, time, and weather from your desktop top bar.
 - Color scheme automatically synced to your current Omarchy theme.
-- At-a-glance agent status and task-completion alerts (Codex-only for now).
+- Agent status and task completion alerts (Codex-only at the moment).
 
 ## Install
 
@@ -57,8 +57,8 @@ watch. Pairing is only required once.
 ## Agent status and alerts
 
 An Omarchy robot appears while Codex is working. When a turn finishes, the
-watch wakes, plays an optional chime, and gently bounces the robot. The alert
-remains until you acknowledge it with a tap—letting you step away and make a
+watch wakes, plays a chime, and gently bounces the robot. The robot remains
+until you acknowledge it with a tap. Designed to let you step away and make a
 cup of coffee instead of watching the terminal.
 
 The integration uses Codex lifecycle hooks but never reads your prompts,
