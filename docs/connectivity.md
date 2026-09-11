@@ -154,8 +154,12 @@ a 30-second fast-reconnect advertising window, then resumes low-duty
 advertising. The desktop registers the service UUID through BlueZ's
 `GattProfile1` API, asking the system Bluetooth service to connect whenever the
 watch is available. BlueZ connection and service-resolution property changes
-then drive synchronization directly. The desktop does not scan, poll, or issue
-its own connection requests during normal reconnection.
+then drive synchronization directly. Because native profile auto-connect is not
+reliable on every BlueZ/controller combination, the desktop also makes bounded,
+backed-off connection requests while a paired watch is disconnected. It does
+not run general discovery for an already paired watch. A transport failure on a
+link BlueZ still reports as connected is reconciled against BlueZ and resets the
+half-open link before retrying.
 
 ## Current vertical slice
 

@@ -9,6 +9,9 @@ version=$(python3 -c \
   'import json, sys; print(json.load(open(sys.argv[1]))["version"])' \
   "$repo_dir/manifest.json")
 firmware_version=$(sed -nE 's/set\(PROJECT_VER "([^"]+)"\)/\1/p' "$firmware_dir/CMakeLists.txt")
+identity_version=$(sed -nE \
+  's/.*OMARCHY_FIRMWARE_VERSION_(MAJOR|MINOR|PATCH) = ([0-9]+),/\2/p' \
+  "$firmware_dir/main/watch_profile.h" | paste -sd .)
 package_name=omarchy-watch-v${version}-flash
 package_dir=$output_dir/$package_name
 archive=$output_dir/$package_name.tar.gz
@@ -20,6 +23,11 @@ command -v idf.py >/dev/null || {
 
 if [[ $version != "$firmware_version" ]]; then
   echo "Manifest version $version does not match firmware version $firmware_version." >&2
+  exit 1
+fi
+
+if [[ $version != "$identity_version" ]]; then
+  echo "Manifest version $version does not match firmware identity version $identity_version." >&2
   exit 1
 fi
 

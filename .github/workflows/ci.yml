@@ -25,6 +25,9 @@ jobs:
           test -f "$(jq -r '.entryPoints.barWidget' manifest.json)"
           test "$(jq -r '.version' manifest.json)" = \
             "$(sed -nE 's/set\(PROJECT_VER "([^"]+)"\)/\1/p' firmware/CMakeLists.txt)"
+          test "$(jq -r '.version' manifest.json)" = \
+            "$(sed -nE 's/.*OMARCHY_FIRMWARE_VERSION_(MAJOR|MINOR|PATCH) = ([0-9]+),/\2/p' \
+              firmware/main/watch_profile.h | paste -sd .)"
       - name: Check scripts and Python
         run: |
           bash -n desktop/install-local.sh

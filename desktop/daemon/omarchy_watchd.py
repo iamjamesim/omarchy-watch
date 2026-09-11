@@ -51,6 +51,10 @@ WEATHER_MAX_AGE_SECONDS = 6 * 60 * 60
 DISPLAY_PREVIEW_SECONDS = 30
 CONTEXT_RECONCILE_SECONDS = 60
 CONTEXT_DEBOUNCE_MILLISECONDS = 200
+RECONNECT_INITIAL_MILLISECONDS = 1000
+RECONNECT_MAX_MILLISECONDS = 30000
+TRANSPORT_RECOVERY_MILLISECONDS = 250
+CONNECTION_TIMEOUT_SECONDS = 120
 MIN_BRIGHTNESS = 20
 MAX_BRIGHTNESS = 100
 DEFAULT_BRIGHTNESS = 50
@@ -527,6 +531,10 @@ class WatchDaemon:
         self.identity_verified = False
         self.discovery_active = False
         self.discovery_restart_source = 0
+        self.reconnect_source = 0
+        self.reconnect_delay_milliseconds = RECONNECT_INITIAL_MILLISECONDS
+        self.transport_recovery_source = 0
+        self.recovery_inflight = False
         self.context_refresh_inflight = False
         self.context_refresh_source = 0
         self.context_monitors = []
@@ -961,7 +969,7 @@ class WatchDaemon:
         name = properties.get("Name", "") or properties.get("Alias", "")
         return SERVICE_UUID in uuids or name.startswith("Omarchy Watch")
 
-    def refresh_devices(self) -> bool:
+    def refresh_devices(self, allow_sync: bool = True) -> bool:
         try:
             objects = self.managed_objects()
         except dbus.DBusException:
@@ -1031,6 +1039,7 @@ class WatchDaemon:
         if paired:
             self.stop_discovery()
         connected = bool(properties.get("Connected"))
+        services_resolved = bool(properties.get("ServicesResolved"))
         if not connected:
             self.identity_verified = False
         previous_status = self.state.get("status")
@@ -1044,7 +1053,7 @@ class WatchDaemon:
             message = self.state.get("message", "Pairing failed")
         else:
             status = (
-                "ready" if paired and connected and self.state.get("lastSynced", 0)
+                "ready" if paired and connected and services_resolved and self.state.get("lastSynced", 0)
                 else "paired" if paired and connected
                 else "disconnected" if paired
                 else "found"
@@ -1053,6 +1062,7 @@ class WatchDaemon:
                 "Ready to pair" if not paired else
                 "Changes waiting to sync" if status == "ready" and self.sync_pending() else
                 "Up to date" if status == "ready" else
+                "Finishing secure connection" if connected and not services_resolved else
                 "Connected" if connected else
                 "Waiting for watch to reconnect"
             )
@@ -1067,12 +1077,62 @@ class WatchDaemon:
         )
         if paired:
             if connected:
-                if properties.get("ServicesResolved"):
+                self.cancel_reconnect()
+                if allow_sync and services_resolved:
                     if self.sync_needed():
                         self.sync_connected_profile()
                     elif self.activity_dirty:
                         self.sync_connected_activity()
+            else:
+                self.schedule_reconnect()
+        else:
+            self.cancel_reconnect()
         return True
+
+    def cancel_reconnect(self, reset_delay: bool = True) -> None:
+        source = getattr(self, "reconnect_source", 0)
+        if source:
+            GLib.source_remove(source)
+            self.reconnect_source = 0
+        if reset_delay:
+            self.reconnect_delay_milliseconds = RECONNECT_INITIAL_MILLISECONDS
+
+    def schedule_reconnect(self) -> None:
+        if (getattr(self, "reconnect_source", 0) or
+                getattr(self, "connect_inflight", False) or
+                getattr(self, "recovery_inflight", False) or
+                getattr(self, "write_inflight", False) or
+                getattr(self, "pending_passkey", None) is not None or
+                not getattr(self, "device_path", "") or
+                not self.state.get("paired") or
+                self.state.get("connected")):
+            return
+        delay = getattr(
+            self, "reconnect_delay_milliseconds",
+            RECONNECT_INITIAL_MILLISECONDS,
+        )
+        self.reconnect_source = GLib.timeout_add(delay, self.reconnect)
+        self.reconnect_delay_milliseconds = min(
+            RECONNECT_MAX_MILLISECONDS,
+            max(RECONNECT_INITIAL_MILLISECONDS, delay * 2),
+        )
+
+    def reconnect(self) -> bool:
+        self.reconnect_source = 0
+        if (not self.device_path or self.pending_passkey is not None or
+                self.connect_inflight or self.recovery_inflight or
+                self.write_inflight):
+            return False
+        try:
+            properties = self.device_properties(self.device_path)
+        except dbus.DBusException:
+            self.schedule_reconnect()
+            return False
+        if properties.get("Connected"):
+            self.refresh_devices()
+            return False
+        self.ensure_connection("automatic reconnect")
+        return False
 
     def start_discovery(self) -> None:
         if not self.refresh_devices():
@@ -1215,6 +1275,12 @@ class WatchDaemon:
 
     def on_bluez_owner_changed(self, name, old_owner, new_owner) -> None:
         if not new_owner:
+            self.cancel_reconnect(reset_delay=False)
+            recovery_source = getattr(self, "transport_recovery_source", 0)
+            if recovery_source:
+                GLib.source_remove(recovery_source)
+                self.transport_recovery_source = 0
+            self.recovery_inflight = False
             for match in self.property_signal_matches:
                 match.remove()
             self.property_signal_matches = []
@@ -1225,6 +1291,7 @@ class WatchDaemon:
             )
             return
         self.connect_inflight = False
+        self.recovery_inflight = False
         self.write_inflight = False
         self.identity_verified = False
         self.activity_dirty = True
@@ -1347,14 +1414,18 @@ class WatchDaemon:
         self.fail(f"Pairing failed: {detail}")
 
     def ensure_connection(self, reason: str = "unspecified") -> bool:
-        if not self.device_path or self.connect_inflight:
+        if (not self.device_path or self.connect_inflight or
+                getattr(self, "recovery_inflight", False)):
             return False
         if self.write_inflight:
             return False
         properties = self.device_properties(self.device_path)
         if properties.get("Connected"):
             self.refresh_devices()
+            if reason == "manual sync" and not properties.get("ServicesResolved"):
+                self.schedule_transport_recovery()
             return False
+        self.cancel_reconnect(reset_delay=False)
         self.connect_inflight = True
         self.identity_verified = False
         self.log(f"Starting explicit connection attempt ({reason})")
@@ -1364,7 +1435,7 @@ class WatchDaemon:
             dbus.Interface(device, DEVICE).Connect(
                 reply_handler=self.on_connected,
                 error_handler=self.on_connect_error,
-                timeout=30,
+                timeout=CONNECTION_TIMEOUT_SECONDS,
             )
         except dbus.DBusException as error:
             self.on_connect_error(error)
@@ -1373,6 +1444,7 @@ class WatchDaemon:
     def on_connected(self) -> None:
         self.log("Explicit connection request completed")
         self.connect_inflight = False
+        self.reconnect_delay_milliseconds = RECONNECT_INITIAL_MILLISECONDS
         self.identity_verified = False
         self.refresh_devices()
 
@@ -1384,8 +1456,19 @@ class WatchDaemon:
         if name == "org.bluez.Error.AlreadyConnected":
             self.refresh_devices()
             return
-        if name == "org.bluez.Error.InProgress":
+        if (name == "org.bluez.Error.InProgress" or
+                "Operation already in progress" in detail):
             self.write_state(status="syncing", message="Connecting to watch")
+            self.schedule_reconnect()
+            return
+        if (name == "org.freedesktop.DBus.Error.NoReply" or
+                "Did not receive a reply" in detail):
+            # BlueZ may keep the controller's targeted connection procedure
+            # running after the D-Bus caller's timeout. Do not tear down that
+            # valid in-flight attempt; a later Connected property change or a
+            # backed-off retry will reconcile it.
+            self.write_state(status="syncing", message="Connecting to watch")
+            self.schedule_reconnect()
             return
         if self.handle_transport_error(error):
             return
@@ -1409,8 +1492,60 @@ class WatchDaemon:
                 "Waiting for watch to reconnect"
             )
             self.write_state(status=status, connected=False, message=friendly)
+            self.schedule_transport_recovery()
             return True
         return False
+
+    def schedule_transport_recovery(self) -> None:
+        if getattr(self, "transport_recovery_source", 0):
+            return
+        self.transport_recovery_source = GLib.timeout_add(
+            TRANSPORT_RECOVERY_MILLISECONDS, self.recover_transport
+        )
+
+    def recover_transport(self) -> bool:
+        self.transport_recovery_source = 0
+        if not self.refresh_devices(allow_sync=False):
+            return False
+        if (not self.device_path or not self.state.get("paired") or
+                self.pending_passkey is not None):
+            return False
+        if not self.current_device_properties.get("Connected"):
+            return False
+        if self.recovery_inflight:
+            return False
+        self.cancel_reconnect(reset_delay=False)
+        self.recovery_inflight = True
+        self.write_state(
+            status="syncing", connected=True,
+            message="Recovering watch connection",
+        )
+        try:
+            dbus.Interface(
+                self.bluez_object(self.device_path), DEVICE
+            ).Disconnect(
+                reply_handler=self.on_recovery_disconnected,
+                error_handler=self.on_recovery_disconnect_error,
+                timeout=10,
+            )
+        except dbus.DBusException as error:
+            self.on_recovery_disconnect_error(error)
+        return False
+
+    def on_recovery_disconnected(self) -> None:
+        self.log("Reset stale watch connection")
+        self.recovery_inflight = False
+        self.identity_verified = False
+        self.refresh_devices(allow_sync=False)
+
+    def on_recovery_disconnect_error(self, error) -> None:
+        self.recovery_inflight = False
+        name = error.get_dbus_name() if isinstance(error, dbus.DBusException) else ""
+        detail = error.get_dbus_message() if isinstance(error, dbus.DBusException) else str(error)
+        self.log(
+            f"Resetting stale connection returned {name or 'unknown'}: {detail}"
+        )
+        self.refresh_devices(allow_sync=False)
 
     def sync_connected_profile(self) -> None:
         self.connect_inflight = False
