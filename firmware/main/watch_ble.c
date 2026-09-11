@@ -4,7 +4,11 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "esp_pm.h"
 #include "esp_random.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+#include "freertos/task.h"
 #include "host/ble_hs.h"
 #include "host/util/util.h"
 #include "nimble/nimble_port.h"
@@ -46,11 +50,37 @@ static uint16_t idle_params_conn_handle = BLE_HS_CONN_HANDLE_NONE;
 static uint16_t activity_conn_handle = BLE_HS_CONN_HANDLE_NONE;
 static uint16_t activity_attr_handle;
 static uint32_t last_alerted_activity_revision;
+static esp_pm_lock_handle_t work_pm_lock;
+static QueueHandle_t profile_queue;
+static QueueHandle_t ui_queue;
 static omarchy_activity_v1_t activity = {
     .magic = {'O', 'A'},
     .version = OMARCHY_ACTIVITY_VERSION,
     .state = OMARCHY_ACTIVITY_NONE,
 };
+
+/* Keep I2C, flash, and display work out of NimBLE callbacks. */
+typedef struct {
+    omarchy_profile_v3_t packet;
+    uint16_t packet_length;
+} pending_profile_t;
+
+typedef enum {
+    UI_EVENT_ACTIVITY,
+    UI_EVENT_CONNECTION,
+} ui_event_type_t;
+
+typedef struct {
+    ui_event_type_t type;
+    union {
+        struct {
+            uint8_t state;
+            bool alert;
+            bool sound;
+        } activity;
+        bool connected;
+    } data;
+} pending_ui_event_t;
 
 enum {
     IDLE_CONN_INTERVAL_MIN = 160, /* 200 ms in 1.25 ms units. */
@@ -99,26 +129,120 @@ static void request_idle_connection_parameters(uint16_t conn_handle)
     }
 }
 
-static void persist_profile(const void *profile,
-                            size_t profile_size,
-                            uint8_t version,
-                            const uint8_t profile_owner_id[16],
-                            uint32_t revision)
+static esp_err_t persist_profile(const void *profile,
+                                 size_t profile_size,
+                                 uint8_t version,
+                                 const uint8_t profile_owner_id[16],
+                                 uint32_t revision)
 {
     nvs_handle_t nvs;
-    ESP_ERROR_CHECK(nvs_open("omarchy", NVS_READWRITE, &nvs));
-    ESP_ERROR_CHECK(nvs_set_u8(nvs, "owned", 1));
-    ESP_ERROR_CHECK(nvs_set_blob(nvs, "owner_id", profile_owner_id, 16));
+    esp_err_t err = nvs_open("omarchy", NVS_READWRITE, &nvs);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = nvs_set_u8(nvs, "owned", 1);
+    if (err == ESP_OK) {
+        err = nvs_set_blob(nvs, "owner_id", profile_owner_id, 16);
+    }
     const char *profile_key = version == 3 ? "profile_v3" :
                               version == 2 ? "profile_v2" : "profile_v1";
-    ESP_ERROR_CHECK(nvs_set_blob(nvs, profile_key, profile, profile_size));
-    ESP_ERROR_CHECK(nvs_set_u32(nvs, "profile_rev", revision));
-    ESP_ERROR_CHECK(nvs_commit(nvs));
+    if (err == ESP_OK) {
+        err = nvs_set_blob(nvs, profile_key, profile, profile_size);
+    }
+    if (err == ESP_OK) {
+        err = nvs_set_u32(nvs, "profile_rev", revision);
+    }
+    if (err == ESP_OK) {
+        err = nvs_commit(nvs);
+    }
     nvs_close(nvs);
-    memcpy(owner_id, profile_owner_id, sizeof(owner_id));
-    profile_revision = revision;
-    identity.flags |= 1;
-    watch_owned = true;
+    return err;
+}
+
+static void apply_profile_task(void *argument)
+{
+    (void)argument;
+    pending_profile_t pending;
+    for (;;) {
+        if (xQueueReceive(profile_queue, &pending, portMAX_DELAY) != pdPASS) {
+            continue;
+        }
+        esp_err_t lock_err = esp_pm_lock_acquire(work_pm_lock);
+        if (lock_err != ESP_OK) {
+            ESP_LOGE(TAG, "Could not hold profile power lock: %s",
+                     esp_err_to_name(lock_err));
+            continue;
+        }
+
+        const omarchy_profile_v1_t *base =
+            (const omarchy_profile_v1_t *)&pending.packet;
+        esp_err_t rtc_err = watch_rtc_set_time(base->unix_time);
+        if (rtc_err != ESP_OK) {
+            ESP_LOGW(TAG, "Could not update RTC: %s", esp_err_to_name(rtc_err));
+        }
+        esp_err_t persist_err = persist_profile(
+            &pending.packet, pending.packet_length, base->version,
+            base->owner_id, base->revision
+        );
+        if (persist_err != ESP_OK) {
+            ESP_LOGE(TAG, "Could not persist profile revision %lu: %s",
+                     (unsigned long)base->revision, esp_err_to_name(persist_err));
+            esp_pm_lock_release(work_pm_lock);
+            continue;
+        }
+
+        if (base->version == 3) {
+            watch_ui_apply_profile_v3(&pending.packet);
+        } else if (base->version == 2) {
+            watch_ui_apply_profile_v2((omarchy_profile_v2_t *)&pending.packet);
+        } else {
+            watch_ui_apply_time(
+                base->unix_time, base->utc_offset_minutes, base->hour_cycle
+            );
+        }
+        ESP_LOGI(TAG, "Applied v%u profile revision %lu",
+                 base->version, (unsigned long)base->revision);
+        esp_pm_lock_release(work_pm_lock);
+    }
+}
+
+static void apply_ui_task(void *argument)
+{
+    (void)argument;
+    pending_ui_event_t pending;
+    for (;;) {
+        if (xQueueReceive(ui_queue, &pending, portMAX_DELAY) != pdPASS) {
+            continue;
+        }
+        esp_err_t lock_err = esp_pm_lock_acquire(work_pm_lock);
+        if (lock_err != ESP_OK) {
+            ESP_LOGE(TAG, "Could not hold UI power lock: %s",
+                     esp_err_to_name(lock_err));
+            continue;
+        }
+
+        if (pending.type == UI_EVENT_ACTIVITY) {
+            watch_ui_apply_activity(
+                pending.data.activity.state,
+                pending.data.activity.alert,
+                pending.data.activity.sound
+            );
+        } else {
+            watch_ui_set_connected(pending.data.connected);
+        }
+        esp_pm_lock_release(work_pm_lock);
+    }
+}
+
+static void queue_connection_update(bool connected)
+{
+    const pending_ui_event_t pending = {
+        .type = UI_EVENT_CONNECTION,
+        .data.connected = connected,
+    };
+    if (ui_queue == NULL || xQueueSend(ui_queue, &pending, 0) != pdPASS) {
+        ESP_LOGE(TAG, "Could not queue connection UI update");
+    }
 }
 
 static esp_err_t load_owner_state(uint8_t loaded_owner_id[16], uint32_t *loaded_revision)
@@ -236,14 +360,28 @@ static int gatt_access(uint16_t conn_handle, uint16_t attr_handle,
                            incoming.revision > activity.acknowledged_revision;
         const bool sound = alert &&
                            (incoming.flags & OMARCHY_ACTIVITY_SOUND) != 0;
+        const uint8_t state = incoming.revision <= activity.acknowledged_revision
+            ? OMARCHY_ACTIVITY_NONE : incoming.state;
+        const pending_ui_event_t pending = {
+            .type = UI_EVENT_ACTIVITY,
+            .data.activity = {
+                .state = state,
+                .alert = alert,
+                .sound = sound,
+            },
+        };
+        if (ui_queue == NULL || xQueueSend(ui_queue, &pending, 0) != pdPASS) {
+            ESP_LOGE(TAG, "Could not queue activity revision %lu",
+                     (unsigned long)incoming.revision);
+            return BLE_ATT_ERR_INSUFFICIENT_RES;
+        }
+
         activity.revision = incoming.revision;
         activity.flags = 0;
-        activity.state = incoming.revision <= activity.acknowledged_revision
-            ? OMARCHY_ACTIVITY_NONE : incoming.state;
+        activity.state = state;
         if (alert) {
             last_alerted_activity_revision = incoming.revision;
         }
-        watch_ui_apply_activity(activity.state, alert, sound);
         return 0;
     }
 
@@ -282,22 +420,22 @@ static int gatt_access(uint16_t conn_handle, uint16_t attr_handle,
             return BLE_ATT_ERR_WRITE_NOT_PERMITTED;
         }
 
-        esp_err_t rtc_err = watch_rtc_set_time(base->unix_time);
-        if (rtc_err != ESP_OK) {
-            ESP_LOGW(TAG, "Could not update RTC: %s", esp_err_to_name(rtc_err));
-        }
         const bool becoming_owned = !watch_owned;
-        persist_profile(&packet, packet_length, base->version, base->owner_id, base->revision);
-        if (is_v3) {
-            watch_ui_apply_profile_v3(&packet);
-        } else if (is_v2) {
-            watch_ui_apply_profile_v2((omarchy_profile_v2_t *)&packet);
-        } else {
-            watch_ui_apply_time(base->unix_time, base->utc_offset_minutes, base->hour_cycle);
+        const pending_profile_t pending = {
+            .packet = packet,
+            .packet_length = packet_length,
+        };
+        if (profile_queue == NULL ||
+            xQueueOverwrite(profile_queue, &pending) != pdPASS) {
+            ESP_LOGE(TAG, "Could not queue profile revision %lu",
+                     (unsigned long)base->revision);
+            return BLE_ATT_ERR_INSUFFICIENT_RES;
         }
-        ESP_LOGI(TAG, "Applied v%u profile revision %lu",
-                 base->version, (unsigned long)base->revision);
-        log_connection_parameters(conn_handle, "Profile");
+
+        memcpy(owner_id, base->owner_id, sizeof(owner_id));
+        profile_revision = base->revision;
+        identity.flags |= 1;
+        watch_owned = true;
         if (becoming_owned) {
             request_idle_connection_parameters(conn_handle);
         }
@@ -376,7 +514,7 @@ static int gap_event(struct ble_gap_event *event, void *arg)
         if (event->disconnect.conn.conn_handle == activity_conn_handle) {
             activity_conn_handle = BLE_HS_CONN_HANDLE_NONE;
         }
-        watch_ui_set_connected(false);
+        queue_connection_update(false);
         advertise(true);
         return 0;
 
@@ -410,7 +548,7 @@ static int gap_event(struct ble_gap_event *event, void *arg)
         ESP_LOGI(TAG, "Encryption changed, status=%d", event->enc_change.status);
         if (event->enc_change.status == 0) {
             activity_conn_handle = event->enc_change.conn_handle;
-            watch_ui_set_connected(true);
+            queue_connection_update(true);
             if (watch_owned && event->enc_change.conn_handle != idle_params_conn_handle) {
                 request_idle_connection_parameters(event->enc_change.conn_handle);
             }
@@ -540,8 +678,48 @@ esp_err_t watch_ble_start(uint32_t pairing_passkey, bool owned)
         return ESP_FAIL;
     }
 
+    err = esp_pm_lock_create(
+        ESP_PM_NO_LIGHT_SLEEP, 0, "watch_work", &work_pm_lock
+    );
+    if (err != ESP_OK) {
+        return err;
+    }
+    profile_queue = xQueueCreate(1, sizeof(pending_profile_t));
+    ui_queue = xQueueCreate(8, sizeof(pending_ui_event_t));
+    if (profile_queue == NULL || ui_queue == NULL) {
+        goto work_init_failed;
+    }
+
+    TaskHandle_t profile_task = NULL;
+    if (xTaskCreate(
+            apply_profile_task, "profile_apply", 8192, NULL, 4, &profile_task
+        ) != pdPASS) {
+        goto work_init_failed;
+    }
+    if (xTaskCreate(
+            apply_ui_task, "ui_apply", 4096, NULL, 4, NULL
+        ) != pdPASS) {
+        vTaskDelete(profile_task);
+        goto work_init_failed;
+    }
+
     nimble_port_freertos_init(host_task);
     return ESP_OK;
+
+work_init_failed:
+    if (profile_queue != NULL) {
+        vQueueDelete(profile_queue);
+        profile_queue = NULL;
+    }
+    if (ui_queue != NULL) {
+        vQueueDelete(ui_queue);
+        ui_queue = NULL;
+    }
+    if (work_pm_lock != NULL) {
+        esp_pm_lock_delete(work_pm_lock);
+        work_pm_lock = NULL;
+    }
+    return ESP_ERR_NO_MEM;
 }
 
 void watch_ble_acknowledge_activity(void)
