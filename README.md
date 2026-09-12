@@ -16,6 +16,7 @@ _This is an independent community project, not an official Omarchy project._
 - A watch face designed to match Omarchy's look and feel with JetBrains Mono and Nerd Fonts glyphs.
 - Date, time, and weather from your desktop top bar.
 - Color scheme automatically synced to your current Omarchy theme.
+- Codex activity and completion alerts through an optional, separately installed companion integration.
 
 ## Install
 
@@ -59,6 +60,18 @@ Pair through the Omarchy Watch panel, not Omarchy's general Bluetooth panel or `
 
 If discovery takes longer than expected, open the persistent watch icon and
 select **Scan Again**. Pairing is only required once.
+
+## Optional Codex activity indicators
+
+Codex activity and completion alerts are available through the separate
+[Omarchy Watch for Codex](https://github.com/iamjamesim/omarchy-watch-codex)
+integration. It is not included with Omarchy Watch and is never installed
+automatically.
+
+The integration adds four Codex lifecycle hooks. Review its behavior and
+privacy disclosure before opting in. Installing Omarchy Watch does not
+constitute consent to install the Codex integration; agents must obtain
+separate, explicit approval.
 
 ## Update
 
