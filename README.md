@@ -1,6 +1,7 @@
 # Omarchy Watch
 
-An Omarchy smartwatch for the [Waveshare ESP32-S3-Touch-AMOLED-2.06](https://www.waveshare.com/wiki/ESP32-S3-Touch-AMOLED-2.06), with a top-bar widget and desktop client for pairing, settings, and sync.
+An Omarchy companion smartwatch for the
+[Waveshare ESP32-S3-Touch-AMOLED-2.06](https://www.waveshare.com/wiki/ESP32-S3-Touch-AMOLED-2.06).
 
 ![Omarchy Watch synchronized with an Omarchy desktop](docs/images/omarchy-watch-hero.webp)
 
@@ -13,14 +14,13 @@ _This is an independent community project, not an official Omarchy project._
 </p>
 
 - A watch face designed to match Omarchy's look and feel with JetBrains Mono and Nerd Fonts glyphs.
-- A top-bar widget for pairing, connection status, brightness, and completion sound.
 - Date, time, and weather from your desktop top bar.
 - Color scheme automatically synced to your current Omarchy theme.
 - Agent status and task completion alerts (Codex-only at the moment).
 
 ## Install
 
-The easiest way to get started is to ask your coding agent to follow the steps below. It can flash the watch, install the desktop client, and guide you through pairing.
+The easiest way to get started is to ask your coding agent to follow the steps below. It can flash the watch, install the bar widget and desktop client, and guide you through pairing.
 
 Omarchy Watch requires Omarchy 4.0 or newer, Bluetooth LE, and the exact
 Waveshare ESP32-S3-Touch-AMOLED-2.06 board. The board is development hardware,
@@ -41,7 +41,7 @@ partition table, and application separately so firmware upgrades preserve the
 watch's pairing and settings. See the [firmware guide](firmware/README.md) for
 source builds, recovery, and complete flashing details.
 
-### 2. Install the Omarchy companion
+### 2. Install the bar widget and desktop client
 
 Clone the repository, then run its installer:
 
@@ -57,14 +57,14 @@ Watch entries before starting a new session.
 
 ### 3. Pair
 
-Pair through the Omarchy Watch panel, not Omarchy's general Bluetooth panel or `bluetoothctl`. When the companion discovers an unpaired watch, its top-bar panel opens automatically and focuses the code field. Enter the six-digit code shown on the watch and select **Pair**.
+Pair through the Omarchy Watch panel, not Omarchy's general Bluetooth panel or `bluetoothctl`. When the desktop client discovers an unpaired watch, its top-bar panel opens automatically and focuses the code field. Enter the six-digit code shown on the watch and select **Pair**.
 
 If discovery takes longer than expected, open the persistent watch icon and
 select **Scan Again**. Pairing is only required once.
 
 ## Update
 
-Update the desktop companion from its checkout:
+Update the desktop client from its checkout:
 
 ```bash
 git pull --ff-only
@@ -106,7 +106,7 @@ Bluetooth behavior can vary across Linux hardware and drivers. If something does
 ## More details
 
 - [Firmware](firmware/README.md) — build, flash, power, and boot behavior
-- [Desktop companion](desktop/README.md) — requirements, settings, and diagnostics
+- [Desktop client](desktop/README.md) — requirements, settings, and diagnostics
 - [Design](docs/design.md) — watch-face and product decisions
 - [Connectivity](docs/connectivity.md) — secure pairing and Bluetooth protocol
 - [Simulator](simulator/README.md) — deterministic watch-face previews
