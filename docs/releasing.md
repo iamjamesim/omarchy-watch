@@ -57,12 +57,12 @@ appear as an unverified update until it completes the update workflow.
 Use the public repository root URL and request a manual-setup listing:
 
 - Category: `Hardware`
-- Tags: `ai`, `bar`, `system`
-- Suggested missing tag: `bluetooth`
+- Tags: `ai`, `bar`
+- Suggested missing tag: none
 - Maintainer note: `omarchy plugin add` alone cannot produce a functioning
   installation because the watch requires the bundled user systemd bridge,
-  control commands, and optional Codex hooks. The README installer and
-  uninstaller are the supported setup path.
+  control command, and Bluetooth setup. The README installer and uninstaller
+  are the supported setup path.
 
 Show the completed submission issue to the repository owner and confirm every
 marketplace checklist statement before creating it.

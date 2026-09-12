@@ -63,7 +63,6 @@ python3 -c 'import dbus, gi' >/dev/null || {
 mkdir -p "$lib_dir" "$bin_dir" "$unit_dir" "$plugin_dir/desktop/plugin"
 install -m 0755 "$source_dir/daemon/omarchy_watchd.py" "$lib_dir/omarchy_watchd.py"
 install -m 0755 "$source_dir/bin/omarchy-watchctl" "$bin_dir/omarchy-watchctl"
-install -m 0755 "$source_dir/bin/omarchy-watch-agent-hook" "$bin_dir/omarchy-watch-agent-hook"
 install -m 0644 "$source_dir/systemd/omarchy-watch.service" "$unit_dir/omarchy-watch.service"
 if [[ $repo_dir != "$plugin_dir" ]]; then
   install -m 0644 "$repo_dir/manifest.json" "$plugin_dir/manifest.json"
@@ -71,7 +70,6 @@ if [[ $repo_dir != "$plugin_dir" ]]; then
   rm -f "$plugin_dir/Panel.qml"
   rm -f "$plugin_dir/desktop/plugin/Panel.qml"
 fi
-"$source_dir/install-codex-hooks.py"
 
 systemctl --user daemon-reload
 systemctl --user enable omarchy-watch.service
@@ -110,4 +108,3 @@ if ! wait_for_shell; then
 fi
 
 echo "Omarchy Watch panel reloaded."
-echo "Codex activity hooks installed. Review and trust them with /hooks in Codex."

@@ -47,23 +47,6 @@ throughout recovery.
 The bundled endpoint is Open-Meteo's non-commercial free API. Commercial
 derivatives must use an appropriate Open-Meteo plan or replace the provider.
 
-## Agent activity
-
-The bridge accepts provider-neutral lifecycle events over its local socket. A
-small Codex adapter uses the official
-[`UserPromptSubmit`, `Stop`, `Interrupt`, and `SessionEnd` hooks](https://learn.chatgpt.com/docs/hooks).
-It never reads transcripts, prompts, or responses.
-Running turns live only in memory; the state directory retains opaque IDs and
-delivery metadata only for unacknowledged completions.
-
-The watch renders one aggregate state: any completion awaiting attention wins
-over running work. Every distinct completion produces one alert, even while an
-earlier result still awaits attention. Firmware with speaker support plays the
-panel's toggleable completion sound; GPIO18 can also drive an optional motor. A
-watch tap acknowledges all completion revisions it has seen. Reconnects reconcile
-that revision before sending a current snapshot without repeating delivered
-alerts; delayed alerts are limited to results completed within the last two hours.
-
 ## Install a development checkout
 
 From the repository root:
@@ -72,14 +55,11 @@ From the repository root:
 ./desktop/install-local.sh
 ```
 
-The installer copies the daemon, commands, user service, and plugin into
-standard per-user locations, merges the lifecycle adapter into
-`~/.codex/hooks.json`, starts the service, and enables the right-side bar
+The installer copies the daemon, control command, user service, and plugin into
+standard per-user locations, starts the service, and enables the right-side bar
 widget. Upgrades restart the user daemon and Omarchy shell after the completed
 panel installation, while preserving an existing bar placement. It does not
 modify Omarchy's system files and requires no root access.
-Codex requires review of newly installed user hooks; open `/hooks` in Codex and
-trust the Omarchy Watch entries before starting a new session.
 
 Re-run the command after changing desktop source files.
 
@@ -105,12 +85,11 @@ From the repository root:
 ./desktop/uninstall-local.sh
 ```
 
-The uninstaller removes only Omarchy Watch's installed files and lifecycle
-hook entries. It preserves pairing identity, preferences, state, and forecast
-cache so reinstalling can reconnect without pairing again. The identity is the
-watch's desktop-owner credential; deleting it without also factory-resetting
-the watch would leave that watch owned by an identity the desktop no longer
-has.
+The uninstaller removes only Omarchy Watch's installed files. It preserves
+pairing identity, preferences, state, and forecast cache so reinstalling can
+reconnect without pairing again. The identity is the watch's desktop-owner
+credential; deleting it without also factory-resetting the watch would leave
+that watch owned by an identity the desktop no longer has.
 
 ## Complete reset or removal
 

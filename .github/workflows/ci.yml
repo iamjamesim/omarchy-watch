@@ -40,9 +40,7 @@ jobs:
           bash -n tools/validate-plugin.sh
           python3 -m py_compile \
             desktop/daemon/omarchy_watchd.py \
-            desktop/install-codex-hooks.py \
-            desktop/bin/omarchy-watchctl \
-            desktop/bin/omarchy-watch-agent-hook
+            desktop/bin/omarchy-watchctl
       - name: Run desktop tests
         run: python3 -m unittest discover -s desktop/tests
 

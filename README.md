@@ -16,7 +16,7 @@ _This is an independent community project, not an official Omarchy project._
 - A watch face designed to match Omarchy's look and feel with JetBrains Mono and Nerd Fonts glyphs.
 - Date, time, and weather from your desktop top bar.
 - Color scheme automatically synced to your current Omarchy theme.
-- Agent status and task completion alerts (Codex-only at the moment).
+- Codex activity and completion alerts through an optional, separately installed companion integration.
 
 ## Install
 
@@ -51,9 +51,8 @@ cd omarchy-watch
 ./desktop/install-local.sh
 ```
 
-The installer adds the desktop bridge, Omarchy bar widget, and Codex lifecycle
-hooks without requiring root. Open `/hooks` in Codex and trust the Omarchy
-Watch entries before starting a new session.
+The installer adds the desktop bridge and Omarchy bar widget without requiring
+root.
 
 ### 3. Pair
 
@@ -61,6 +60,22 @@ Pair through the Omarchy Watch panel, not Omarchy's general Bluetooth panel or `
 
 If discovery takes longer than expected, open the persistent watch icon and
 select **Scan Again**. Pairing is only required once.
+
+### 4. Optional: enable Codex activity indicators
+
+Codex activity and completion alerts are available through the separate
+[Omarchy Watch for Codex](https://github.com/iamjamesim/omarchy-watch-codex)
+companion, distributed as a Codex plugin and managed independently through
+Codex. This keeps the base watch installation independent of agent
+configuration and lets users enable or remove Codex support without
+reinstalling Omarchy Watch. The companion is never installed automatically.
+
+If an agent is performing this installation, it should explain that the
+companion adds four Codex lifecycle hooks and ask whether the user wants this
+feature. It must not install or configure the companion unless the user gives
+separate, explicit approval. Review the companion's behavior and privacy
+disclosure before opting in; installing Omarchy Watch alone does not constitute
+consent to install the Codex integration.
 
 ## Update
 
@@ -82,22 +97,12 @@ From the repository checkout:
 ./desktop/uninstall-local.sh
 ```
 
-Removal stops the bridge and removes its commands, panel, service, and Codex
-hook entries. Pairing identity, settings, and cached state are deliberately
-preserved so a reinstall can reconnect. The identity is also the watch's owner
-credential: deleting only the desktop copy would require a watch factory reset
-before it could be paired again. For coordinated removal of both sides, see
-the [desktop guide](desktop/README.md#complete-reset-or-removal).
-
-## Agent status and alerts
-
-An Omarchy robot appears while Codex is working. When a turn finishes, the
-watch wakes, plays a chime, and gently bounces the robot. The robot remains
-until you acknowledge it with a tap. Designed to let you step away and make a
-cup of coffee instead of watching the terminal.
-
-The integration uses Codex lifecycle hooks but never reads your prompts,
-responses, or transcripts.
+Removal stops the bridge and removes its commands, panel, and service. Pairing
+identity, settings, and cached state are deliberately preserved so a reinstall
+can reconnect. The identity is also the watch's owner credential: deleting only
+the desktop copy would require a watch factory reset before it could be paired
+again. For coordinated removal of both sides, see the
+[desktop guide](desktop/README.md#complete-reset-or-removal).
 
 ## Troubleshooting
 

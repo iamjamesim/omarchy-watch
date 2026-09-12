@@ -800,26 +800,26 @@ class AgentActivityTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             ledger = self.make_ledger(directory)
 
-            self.assertTrue(ledger.working("codex", "session-1", "turn-1"))
+            self.assertTrue(ledger.working("provider", "session-1", "turn-1"))
             self.assertEqual(ledger.aggregate()[0], daemon.ACTIVITY_WORKING)
             self.assertTrue(ledger.completed(
-                "codex", "session-1", "turn-1", completed_at=int(time.time())
+                "provider", "session-1", "turn-1", completed_at=int(time.time())
             ))
             self.assertEqual(ledger.aggregate()[0], daemon.ACTIVITY_ATTENTION)
-            self.assertTrue(ledger.working("codex", "session-1", "turn-2"))
+            self.assertTrue(ledger.working("provider", "session-1", "turn-2"))
             self.assertEqual(ledger.aggregate()[0], daemon.ACTIVITY_WORKING)
 
     def test_each_distinct_completion_alerts_once(self):
         with tempfile.TemporaryDirectory() as directory:
             ledger = self.make_ledger(directory)
             now = int(time.time())
-            ledger.completed("codex", "one", "turn-1", completed_at=now)
+            ledger.completed("provider", "one", "turn-1", completed_at=now)
             state, revision, alert = ledger.aggregate(now)
             self.assertEqual(state, daemon.ACTIVITY_ATTENTION)
             self.assertTrue(alert)
 
             ledger.mark_delivered_through(revision)
-            ledger.completed("codex", "two", "turn-2", completed_at=now)
+            ledger.completed("provider", "two", "turn-2", completed_at=now)
             state, revision, alert = ledger.aggregate(now)
             self.assertEqual(state, daemon.ACTIVITY_ATTENTION)
             self.assertTrue(alert)
@@ -832,14 +832,14 @@ class AgentActivityTests(unittest.TestCase):
             ledger = self.make_ledger(directory)
             now = int(time.time())
             self.assertTrue(ledger.completed(
-                "codex", "one", "turn-1", completed_at=now
+                "provider", "one", "turn-1", completed_at=now
             ))
             _, revision, alert = ledger.aggregate(now)
             self.assertTrue(alert)
             ledger.mark_delivered_through(revision)
 
             self.assertFalse(ledger.completed(
-                "codex", "one", "turn-1", completed_at=now
+                "provider", "one", "turn-1", completed_at=now
             ))
             self.assertFalse(ledger.aggregate(now)[2])
 
@@ -847,23 +847,23 @@ class AgentActivityTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             ledger = self.make_ledger(directory)
             now = int(time.time())
-            ledger.completed("codex", "one", "turn-1", completed_at=now)
+            ledger.completed("provider", "one", "turn-1", completed_at=now)
             acknowledged_revision = ledger.revision
-            ledger.completed("codex", "two", "turn-2", completed_at=now)
+            ledger.completed("provider", "two", "turn-2", completed_at=now)
 
             self.assertTrue(ledger.acknowledge_through(acknowledged_revision))
-            self.assertNotIn("codex:one", ledger.sessions)
-            self.assertIn("codex:two", ledger.sessions)
+            self.assertNotIn("provider:one", ledger.sessions)
+            self.assertIn("provider:two", ledger.sessions)
 
     def test_old_completion_cannot_replace_a_newer_running_turn(self):
         with tempfile.TemporaryDirectory() as directory:
             ledger = self.make_ledger(directory)
-            ledger.working("codex", "session-1", "turn-2")
+            ledger.working("provider", "session-1", "turn-2")
 
             self.assertFalse(ledger.completed(
-                "codex", "session-1", "turn-1", completed_at=int(time.time())
+                "provider", "session-1", "turn-1", completed_at=int(time.time())
             ))
-            self.assertEqual(ledger.sessions["codex:session-1"]["turn"], "turn-2")
+            self.assertEqual(ledger.sessions["provider:session-1"]["turn"], "turn-2")
             self.assertEqual(ledger.aggregate()[0], daemon.ACTIVITY_WORKING)
 
     def test_retained_watch_ack_keeps_future_revisions_monotonic(self):
@@ -871,7 +871,7 @@ class AgentActivityTests(unittest.TestCase):
             ledger = self.make_ledger(directory, epoch=100)
 
             self.assertTrue(ledger.acknowledge_through(500))
-            ledger.working("codex", "session-1", "turn-1")
+            ledger.working("provider", "session-1", "turn-1")
 
             self.assertGreater(ledger.revision, 500)
 
@@ -880,7 +880,7 @@ class AgentActivityTests(unittest.TestCase):
             now = int(time.time())
             ledger = self.make_ledger(directory)
             ledger.completed(
-                "codex", "session-1", "turn-1",
+                "provider", "session-1", "turn-1",
                 completed_at=now - daemon.AGENT_ALERT_FRESH_SECONDS - 1,
             )
 
@@ -892,13 +892,13 @@ class AgentActivityTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             now = int(time.time())
             ledger = self.make_ledger(directory, epoch=now)
-            ledger.working("codex", "working", "turn-1")
-            ledger.completed("codex", "done", "turn-2", completed_at=now)
+            ledger.working("provider", "working", "turn-1")
+            ledger.completed("provider", "done", "turn-2", completed_at=now)
 
             restored = self.make_ledger(directory, epoch=now)
 
-            self.assertNotIn("codex:working", restored.sessions)
-            self.assertIn("codex:done", restored.sessions)
+            self.assertNotIn("provider:working", restored.sessions)
+            self.assertIn("provider:done", restored.sessions)
 
     def test_activity_packet_is_fixed_width(self):
         payload = struct.pack(
@@ -915,7 +915,7 @@ class AgentActivityTests(unittest.TestCase):
             watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
             watch.agent_activity = self.make_ledger(directory)
             watch.agent_activity.completed(
-                "codex", "session-1", "turn-1", completed_at=int(time.time())
+                "provider", "session-1", "turn-1", completed_at=int(time.time())
             )
             watch.completion_sound = True
             watch.state = {"capabilities": daemon.CAP_COMPLETION_SOUND}
@@ -933,7 +933,7 @@ class AgentActivityTests(unittest.TestCase):
             watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
             watch.agent_activity = self.make_ledger(directory)
             watch.agent_activity.completed(
-                "codex", "session-1", "turn-1", completed_at=int(time.time())
+                "provider", "session-1", "turn-1", completed_at=int(time.time())
             )
             watch.completion_sound = False
             watch.state = {"capabilities": daemon.CAP_COMPLETION_SOUND}
@@ -949,7 +949,7 @@ class AgentActivityTests(unittest.TestCase):
             watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
             watch.agent_activity = self.make_ledger(directory)
             watch.agent_activity.completed(
-                "codex", "session-1", "turn-1", completed_at=int(time.time())
+                "provider", "session-1", "turn-1", completed_at=int(time.time())
             )
             watch.completion_sound = True
             watch.state = {"capabilities": 0}
