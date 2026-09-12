@@ -14,10 +14,8 @@ if command -v omarchy >/dev/null; then
 fi
 
 systemctl --user disable --now omarchy-watch.service >/dev/null 2>&1 || true
-"$source_dir/install-codex-hooks.py" --remove
 
 rm -f "$bin_dir/omarchy-watchctl"
-rm -f "$bin_dir/omarchy-watch-agent-hook"
 rm -f "$unit_dir/omarchy-watch.service"
 rm -rf "$lib_dir"
 rm -rf "$plugin_dir"

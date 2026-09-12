@@ -216,7 +216,7 @@ def fetch_weather(opener=urllib.request.urlopen) -> dict:
 
 
 class AgentActivityLedger:
-    """Minimal durable attention state; Codex remains the session authority."""
+    """Minimal durable attention state; the event source remains authoritative."""
 
     def __init__(self, path: Path, epoch: int | None = None):
         self.path = path
