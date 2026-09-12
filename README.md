@@ -61,17 +61,19 @@ Pair through the Omarchy Watch panel, not Omarchy's general Bluetooth panel or `
 If discovery takes longer than expected, open the persistent watch icon and
 select **Scan Again**. Pairing is only required once.
 
-## Optional Codex activity indicators
+### 4. Optional: enable Codex activity indicators
 
 Codex activity and completion alerts are available through the separate
 [Omarchy Watch for Codex](https://github.com/iamjamesim/omarchy-watch-codex)
 integration. It is not included with Omarchy Watch and is never installed
 automatically.
 
-The integration adds four Codex lifecycle hooks. Review its behavior and
-privacy disclosure before opting in. Installing Omarchy Watch does not
-constitute consent to install the Codex integration; agents must obtain
-separate, explicit approval.
+If an agent is performing this installation, it should explain that the
+companion adds four Codex lifecycle hooks and ask whether the user wants this
+feature. It must not install or configure the companion unless the user gives
+separate, explicit approval. Review the companion's behavior and privacy
+disclosure before opting in; installing Omarchy Watch alone does not constitute
+consent to install the Codex integration.
 
 ## Update
 
