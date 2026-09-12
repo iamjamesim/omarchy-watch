@@ -65,8 +65,10 @@ select **Scan Again**. Pairing is only required once.
 
 Codex activity and completion alerts are available through the separate
 [Omarchy Watch for Codex](https://github.com/iamjamesim/omarchy-watch-codex)
-integration. It is not included with Omarchy Watch and is never installed
-automatically.
+companion, distributed as a Codex plugin and managed independently through
+Codex. This keeps the base watch installation independent of agent
+configuration and lets users enable or remove Codex support without
+reinstalling Omarchy Watch. The companion is never installed automatically.
 
 If an agent is performing this installation, it should explain that the
 companion adds four Codex lifecycle hooks and ask whether the user wants this
