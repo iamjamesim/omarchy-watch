@@ -57,8 +57,8 @@ appear as an unverified update until it completes the update workflow.
 Use the public repository root URL and request a manual-setup listing:
 
 - Category: `Hardware`
-- Tags: `bar`, `system`
-- Suggested missing tag: `bluetooth`
+- Tags: `ai`, `bar`
+- Suggested missing tag: none
 - Maintainer note: `omarchy plugin add` alone cannot produce a functioning
   installation because the watch requires the bundled user systemd bridge,
   control command, and Bluetooth setup. The README installer and uninstaller
