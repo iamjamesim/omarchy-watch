@@ -28,7 +28,7 @@ not a waterproof consumer watch.
 
 ### 1. Flash the watch
 
-Download `omarchy-watch-v0.5.2-flash.tar.gz` from the
+Download `omarchy-watch-v0.5.3-flash.tar.gz` from the
 [latest release](https://github.com/iamjamesim/omarchy-watch/releases/latest),
 extract it, connect the board's USB-C programming port, and run:
 
