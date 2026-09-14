@@ -48,8 +48,8 @@ to create a temporary socket. This does not contact the actual watch.
 
 ## Acceptance checks
 
-- Temporary calibration UI: hold the date to open, tap to cycle outer corner
-  radii 50–120 px, hold to close. Grey reveals the physical illuminated edge;
+- Temporary calibration UI: tap the date to open, tap the background to cycle
+  outer corner radii 50–120 px, tap CLOSE to exit. Grey reveals the physical illuminated edge;
   cyan is a 10 px inset centerline. Select the most even spacing around all four
   corners and provide a head-on photo. No selection is saved. This local-test
   affordance should be removed once geometry is calibrated. Current 50 px outer

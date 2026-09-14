@@ -1,5 +1,5 @@
-/* Temporary local-test UI. Long-press date to open; tap cycles candidates;
- * long-press closes. No settings or geometry are persisted by this screen. */
+/* Temporary local-test UI. Tap date to open; tap cycles candidates.
+ * No settings or geometry are persisted by this screen. */
 #include "watch_rim_geometry.h"
 #include <stdio.h>
 
@@ -16,7 +16,7 @@ static void refresh_outline(void)
     watch_rim_points(points, radii[selected], WATCH_RIM_INSET);
     lv_line_set_points(outline, points, WATCH_RIM_POINT_COUNT);
     char text[120];
-    snprintf(text, sizeof(text), "RIM CALIBRATION\n\nOUTER R %d PX\nINSET %d PX\n\nTAP TO CYCLE\nHOLD TO CLOSE",
+    snprintf(text, sizeof(text), "RIM CALIBRATION\n\nOUTER R %d PX\nINSET %d PX\n\nTAP TO CYCLE",
              radii[selected], WATCH_RIM_INSET);
     lv_label_set_text(caption, text);
 }
@@ -37,6 +37,12 @@ static void calibration_event(lv_event_t *event)
     default:
         break;
     }
+}
+
+static void close_calibration(lv_event_t *event)
+{
+    (void)event;
+    if (overlay != NULL) lv_obj_delete(overlay);
 }
 
 void watch_face_show_rim_calibration(void)
@@ -61,5 +67,13 @@ void watch_face_show_rim_calibration(void)
     lv_obj_set_style_text_align(caption, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(caption, 330);
     lv_obj_set_pos(caption, 40, 145);
+    lv_obj_t *close = lv_button_create(overlay);
+    lv_obj_set_size(close, 200, 58);
+    lv_obj_set_pos(close, 105, 350);
+    lv_obj_add_event_cb(close, close_calibration, LV_EVENT_SHORT_CLICKED, NULL);
+    lv_obj_t *close_text = lv_label_create(close);
+    lv_obj_set_style_text_font(close_text, &jetbrains_mono_22, 0);
+    lv_label_set_text(close_text, "CLOSE");
+    lv_obj_center(close_text);
     refresh_outline();
 }

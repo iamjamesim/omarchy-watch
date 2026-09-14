@@ -220,7 +220,7 @@ int main(int argc, char **argv)
         lv_obj_t *overlay = lv_obj_get_child(lv_screen_active(), -1);
         for (unsigned i = 0; i < 8; ++i) lv_obj_send_event(overlay, LV_EVENT_SHORT_CLICKED, NULL);
         if (strstr(lv_label_get_text(lv_obj_get_child(overlay, 1)), "R 50 PX") == NULL) return 1;
-        lv_obj_send_event(overlay, LV_EVENT_LONG_PRESSED, NULL);
+        lv_obj_send_event(lv_obj_get_child(overlay, 2), LV_EVENT_SHORT_CLICKED, NULL);
         if (lv_obj_get_child_count(lv_screen_active()) != children) return 1;
         watch_face_show_rim_calibration();
     }
