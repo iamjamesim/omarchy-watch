@@ -66,6 +66,7 @@ static uint8_t weather_code;
 static bool weather_night;
 static char weather_location[24] = "SAN FRANCISCO";
 static lv_indev_t *display_input;
+static esp_lcd_panel_handle_t display_panel;
 
 static void arm_display_timeout(uint32_t timeout_ms);
 
@@ -94,16 +95,15 @@ static lv_display_t *start_display(const lvgl_port_cfg_t *port_cfg)
     const bsp_display_config_t panel_cfg = {
         .max_transfer_sz = DISPLAY_WIDTH * DISPLAY_HEIGHT * BSP_LCD_BITS_PER_PIXEL / 8,
     };
-    esp_lcd_panel_handle_t panel = NULL;
     esp_lcd_panel_io_handle_t io = NULL;
-    if (bsp_display_new(&panel_cfg, &panel, &io) != ESP_OK ||
+    if (bsp_display_new(&panel_cfg, &display_panel, &io) != ESP_OK ||
         bsp_display_brightness_set(0) != ESP_OK) {
         return NULL;
     }
 
     const lvgl_port_display_cfg_t display_cfg = {
         .io_handle = io,
-        .panel_handle = panel,
+        .panel_handle = display_panel,
         .buffer_size = DISPLAY_WIDTH * DISPLAY_BUFFER_HEIGHT,
         .monochrome = false,
         .hres = DISPLAY_WIDTH,
@@ -439,11 +439,12 @@ static void display_sleep(lv_timer_t *timer)
     if (!display_awake || pairing_visible) {
         return;
     }
-    bsp_display_brightness_set(0);
     display_awake = false;
     if (clock_timer != NULL) lv_timer_pause(clock_timer);
     if (battery_timer != NULL) lv_timer_pause(battery_timer);
     lvgl_port_stop();
+    bsp_display_brightness_set(0);
+    esp_lcd_panel_disp_on_off(display_panel, false);
 }
 
 static void arm_display_timeout(uint32_t timeout_ms)
@@ -465,6 +466,7 @@ static void arm_display_timeout(uint32_t timeout_ms)
 static void wake_display_locked(uint32_t timeout_ms)
 {
     if (!display_awake) {
+        esp_lcd_panel_disp_on_off(display_panel, true);
         lvgl_port_resume();
         display_awake = true;
         if (clock_timer != NULL) {
@@ -508,6 +510,7 @@ static bool begin_display_preview(bool requested)
     if (!requested || display_awake || !display_preview_allowed()) {
         return false;
     }
+    esp_lcd_panel_disp_on_off(display_panel, true);
     lvgl_port_resume();
     display_awake = true;
     return true;
