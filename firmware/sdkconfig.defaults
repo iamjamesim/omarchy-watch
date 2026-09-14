@@ -4,6 +4,9 @@ CONFIG_ESPTOOLPY_FLASHSIZE_32MB=y
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 CONFIG_COMPILER_OPTIMIZATION_PERF=y
+# Startup restores the watch face and synchronously renders LVGL before BLE starts.
+# The calibration overlay exceeds the default 3584-byte main-task stack.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_OCT=y
 CONFIG_SPIRAM_FETCH_INSTRUCTIONS=y
