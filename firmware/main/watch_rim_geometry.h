@@ -3,13 +3,12 @@
 #include <math.h>
 #include "watch_face_layout.h"
 
-/* Provisional visible-edge radius, pending physical calibration. The previous
- * preview guessed a 40 px rim radius at a 10 px inset (outer radius 50).
- * Manufacturer demo uses ~111 px for collision bounds, not a panel mask spec.
- * Keep the physical-edge estimate separate from the inset centerline. */
+/* Physical calibration favored 110 px on the 410x502 panel. This is also
+ * close to the manufacturer's demo collision radius (~111 px), though that
+ * is not a panel mask specification. Keep the edge and inset radii separate. */
 enum {
-    WATCH_SCREEN_CORNER_RADIUS = 50,
-    WATCH_RIM_INSET = 10,
+    WATCH_SCREEN_CORNER_RADIUS = 110,
+    WATCH_RIM_INSET = 2,
     WATCH_RIM_POINT_COUNT = 70,
 };
 
@@ -25,8 +24,10 @@ static inline void watch_rim_points(lv_point_precise_t *points, int outer_radius
     for (int corner = 0; corner < 4; ++corner) {
         for (int step = 0; step <= 16; ++step) {
             const double angle = (-90 + corner * 90 + step * 90.0 / 16) * 3.141592653589793 / 180;
-            points[n++] = (lv_point_precise_t){cx[corner] + radius * cos(angle),
-                                              cy[corner] + radius * sin(angle)};
+            /* LVGL uses integer points on the watch. Truncation biases the
+             * mirrored curves differently and can turn 9.999... into 9. */
+            points[n++] = (lv_point_precise_t){lround(cx[corner] + radius * cos(angle)),
+                                              lround(cy[corner] + radius * sin(angle))};
         }
     }
     points[n] = points[0];

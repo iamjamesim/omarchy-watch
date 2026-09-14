@@ -39,3 +39,8 @@ add_executable(test-profile test_profile.c)
 target_include_directories(test-profile PRIVATE ../firmware/main)
 # Assertions are the tests, including in the simulator's Release build.
 target_compile_options(test-profile PRIVATE -UNDEBUG)
+
+add_executable(test-rim test_rim.c)
+target_include_directories(test-rim PRIVATE ../firmware/main)
+target_link_libraries(test-rim PRIVATE lvgl m)
+target_compile_options(test-rim PRIVATE -UNDEBUG)

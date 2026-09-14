@@ -9,7 +9,7 @@ static lv_obj_t *outline;
 static lv_obj_t *caption;
 static lv_point_precise_t points[WATCH_RIM_POINT_COUNT];
 static unsigned selected;
-static bool calibration_enabled = true;
+static bool calibration_enabled = false;
 static const int radii[] = {50, 60, 70, 80, 90, 100, 110, 120};
 
 static void refresh_outline(void)
