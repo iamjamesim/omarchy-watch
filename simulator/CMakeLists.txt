@@ -43,3 +43,7 @@ add_executable(test-rim test_rim.c)
 target_include_directories(test-rim PRIVATE ../firmware/main)
 target_link_libraries(test-rim PRIVATE lvgl m)
 target_compile_options(test-rim PRIVATE -UNDEBUG)
+
+add_executable(test-sound test_sound.c)
+target_include_directories(test-sound PRIVATE ../firmware/main)
+target_compile_options(test-sound PRIVATE -UNDEBUG)

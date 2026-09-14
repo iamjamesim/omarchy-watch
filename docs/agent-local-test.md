@@ -12,7 +12,9 @@ No release, push, service restart, or flash is part of preparing this branch.
 - Finished: happy robot (U+F1719), relaxed sway.
 - Idle: hidden; tap either attention state to acknowledge.
 - Rim: Codex remaining allowance, selected weekly/session window and reset time.
-- Sounds unchanged. Weather/sync redesign is not included.
+- Needs input: existing same-pitch beep-beep; finished: descending two-note pair.
+- Allowance and battery highlight at 20% or less; charging also highlights battery.
+- Weather/sync redesign is not included.
 
 ## Before touching hardware
 
@@ -48,21 +50,17 @@ to create a temporary socket. This does not contact the actual watch.
 
 ## Acceptance checks
 
-- Temporary calibration UI: opens automatically at boot until CLOSE is tapped.
-  It survives profile refreshes, retaining the selected radius. Tap the date to
-  reopen, tap the background to cycle
-  outer corner radii 50–120 px, tap CLOSE to exit. Grey reveals the physical illuminated edge;
-  cyan is a 10 px inset centerline. Select the most even spacing around all four
-  corners and provide a head-on photo. No selection is saved. This local-test
-  affordance should be removed once geometry is calibrated. Current 50 px outer
-  radius remains provisional; rim and simulator mask now share its definition.
+- Rim geometry is calibrated: 115 px outer radius, 2 px inset, 3 px stroke,
+  and 40% accent track. Temporary calibration UI has been removed.
 
 - Start a turn: excited face pulses, not bounces.
 - In Plan mode, explicitly ask Codex to use `request_user_input`: it bounces
   while waiting, resumes pulsing after the answer, then uses happy eyes/sway
   after completion. Approval prompts and async questions are not covered.
 - Tap finished/needs-input: clear activity; a later distinct event can alert.
-- Interrupt a turn: clear activity. Check normal sounds still play as before.
+- Interrupt a turn: clear activity. Check needs-input plays the familiar two equal notes and finished plays
+  the high–low pair. Compare on the physical speaker; the pattern test is not
+  a substitute for listening.
 - Sleep/wake several times in each state: motion stops asleep and resumes
   without an off-center or rotated stuck glyph.
 - Compare rim against the desktop's **used** fraction: 26% used means 74% left.

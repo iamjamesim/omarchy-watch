@@ -1,4 +1,5 @@
 #include "watch_sound.h"
+#include "watch_sound_pattern.h"
 
 #include <stdatomic.h>
 #include <stdint.h>
@@ -17,16 +18,10 @@ enum {
     RELEASE_SAMPLES = SAMPLE_RATE / 40,
 };
 
-typedef struct {
-    uint16_t start_ms;
-    uint16_t duration_ms;
-    uint16_t frequency;
-    uint16_t amplitude;
-} alert_note_t;
-
 static const char *TAG = "watch_sound";
 static atomic_bool sound_running = ATOMIC_VAR_INIT(false);
 static atomic_uint pending_sounds = ATOMIC_VAR_INIT(0);
+static atomic_uint pending_attention = ATOMIC_VAR_INIT(0);
 static esp_codec_dev_handle_t speaker;
 
 static const int16_t sine_table[32] = {
@@ -34,12 +29,6 @@ static const int16_t sine_table[32] = {
     32767, 32137, 30273, 27245, 23170, 18204, 12539, 6393,
     0, -6393, -12539, -18204, -23170, -27245, -30273, -32137,
     -32767, -32137, -30273, -27245, -23170, -18204, -12539, -6393,
-};
-
-/* A compact retro "ti-ti": two crisp 2,048 Hz pulses with a clear gap. */
-static const alert_note_t completion_notes[] = {
-    {.start_ms = 0,   .duration_ms = 110, .frequency = 2048, .amplitude = 18000},
-    {.start_ms = 235, .duration_ms = 125, .frequency = 2048, .amplitude = 19000},
 };
 
 static int32_t oscillator(uint16_t frequency, uint32_t position)
@@ -75,10 +64,11 @@ static int32_t note_sample(const alert_note_t *note, uint32_t sample)
     return mixed;
 }
 
-static bool write_completion_chime(void)
+static bool write_chime(bool attention)
 {
     const uint32_t total = SAMPLE_RATE * 380 / 1000;
     int16_t samples[BUFFER_SAMPLES];
+    const alert_note_t notes[] = {watch_sound_note(attention, 0), watch_sound_note(attention, 1)};
 
     for (uint32_t written = 0; written < total;) {
         uint32_t count = total - written;
@@ -88,8 +78,8 @@ static bool write_completion_chime(void)
         for (uint32_t index = 0; index < count; ++index) {
             int32_t mixed = 0;
             for (unsigned note = 0;
-                    note < sizeof(completion_notes) / sizeof(completion_notes[0]); ++note) {
-                mixed += note_sample(&completion_notes[note], written + index);
+                    note < sizeof(notes) / sizeof(notes[0]); ++note) {
+                mixed += note_sample(&notes[note], written + index);
             }
             if (mixed > INT16_MAX) {
                 mixed = INT16_MAX;
@@ -106,7 +96,7 @@ static bool write_completion_chime(void)
     return true;
 }
 
-static void play_completion_chime(void)
+static void play_chime(bool attention)
 {
     if (speaker == NULL) {
         speaker = bsp_audio_codec_speaker_init();
@@ -133,8 +123,8 @@ static void play_completion_chime(void)
     /* Give the codec and amplifier time to leave mute before a short alert. */
     vTaskDelay(pdMS_TO_TICKS(100));
 
-    if (!write_completion_chime()) {
-        ESP_LOGE(TAG, "Could not write completion chime");
+    if (!write_chime(attention)) {
+        ESP_LOGE(TAG, "Could not write agent chime");
     }
     esp_codec_dev_close(speaker);
 }
@@ -143,13 +133,19 @@ static void sound_worker(void *argument)
 {
     (void)argument;
     for (;;) {
+        /* Preserve each pending sound's kind; prioritize attention within a
+         * batch rather than letting the latest state overwrite queued alerts. */
+        unsigned attention_count = atomic_exchange(&pending_attention, 0);
         unsigned count = atomic_exchange(&pending_sounds, 0);
+        while (attention_count-- > 0) {
+            play_chime(true);
+        }
         while (count-- > 0) {
-            play_completion_chime();
+            play_chime(false);
         }
 
         atomic_store(&sound_running, false);
-        if (atomic_load(&pending_sounds) == 0 ||
+        if ((atomic_load(&pending_sounds) == 0 && atomic_load(&pending_attention) == 0) ||
                 atomic_exchange(&sound_running, true)) {
             break;
         }
@@ -157,15 +153,26 @@ static void sound_worker(void *argument)
     vTaskDelete(NULL);
 }
 
-void watch_sound_completion(void)
+static void enqueue_sound(bool attention)
 {
-    atomic_fetch_add(&pending_sounds, 1);
+    atomic_fetch_add(attention ? &pending_attention : &pending_sounds, 1);
     if (atomic_exchange(&sound_running, true)) {
         return;
     }
     if (xTaskCreate(sound_worker, "watch_sound", 4096, NULL, 4, NULL) != pdPASS) {
-        ESP_LOGE(TAG, "Could not create completion sound task");
+        ESP_LOGE(TAG, "Could not create agent sound task");
         atomic_store(&pending_sounds, 0);
+        atomic_store(&pending_attention, 0);
         atomic_store(&sound_running, false);
     }
+}
+
+void watch_sound_completion(void)
+{
+    enqueue_sound(false);
+}
+
+void watch_sound_attention(void)
+{
+    enqueue_sound(true);
 }

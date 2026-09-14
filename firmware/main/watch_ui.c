@@ -720,7 +720,11 @@ void watch_ui_apply_activity(uint8_t state, bool alert, bool sound)
         watch_haptics_completion();
     }
     if (sound) {
-        watch_sound_completion();
+        if (state == OMARCHY_ACTIVITY_FINISHED) {
+            watch_sound_completion();
+        } else {
+            watch_sound_attention();
+        }
     }
 }
 
