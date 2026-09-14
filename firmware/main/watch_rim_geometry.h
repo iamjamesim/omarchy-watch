@@ -3,11 +3,12 @@
 #include <math.h>
 #include "watch_face_layout.h"
 
-/* Physical calibration favored 110 px on the 410x502 panel. This is also
+/* Physical calibration favored ~110 px on the 410x502 panel; testing 115 px
+ * for the near-flush rim. This is also
  * close to the manufacturer's demo collision radius (~111 px), though that
  * is not a panel mask specification. Keep the edge and inset radii separate. */
 enum {
-    WATCH_SCREEN_CORNER_RADIUS = 110,
+    WATCH_SCREEN_CORNER_RADIUS = 115,
     WATCH_RIM_INSET = 2,
     WATCH_RIM_POINT_COUNT = 70,
 };

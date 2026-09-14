@@ -4,7 +4,7 @@
 
 int main(void)
 {
-    for (int radius = 50; radius <= 120; radius += 10) {
+    for (int radius = 50; radius <= 120; radius += 5) {
         lv_point_precise_t points[WATCH_RIM_POINT_COUNT];
         watch_rim_points(points, radius, WATCH_RIM_INSET);
         for (int corner = 0; corner < 4; ++corner) {
