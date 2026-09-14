@@ -108,17 +108,19 @@ work.
 
 ## Agent attention
 
-Agent activity has three mutually exclusive states per session: working,
-finished and awaiting attention, or absent. The face aggregates them with
-attention taking priority over work. Working shows Omarchy's exact
-`robot-excited` glyph as a static accent status; every distinct completion plays
-one toggleable speaker chime, wakes the face for five seconds, and bounces the
-glyph whenever the screen is awake. GPIO18 also emits a double pulse for boards
+Agent activity distinguishes working, needs input, finished, and absent.
+The face prioritizes input requests, then unacknowledged completions, then work.
+Omarchy's exact `robot-excited` glyph pulses in opacity over 2.6 seconds while
+working, keeps the original six-pixel bounce for input, and sways continuously
+over 4.2 seconds when finished (+/-4 degrees and +/-2 pixels). Idle is hidden.
+Animations run only while the screen is awake, and repeated snapshots do not
+restart them. Every distinct fresh alert plays one toggleable speaker tone and
+wakes the face for five seconds. GPIO18 also emits a double pulse for boards
 fitted with an optional motor. This alert still fires when an earlier completion
 remains unacknowledged; retransmission and reconnect do not repeat it.
 The normal display timeout remains independent of semantic attention.
 
-Tapping the robot acknowledges every completed revision currently represented
+Tapping the robot acknowledges every input/completion revision currently represented
 by the aggregate glyph. A new prompt implicitly acknowledges the previous
 result in that session, and interruption or session end removes it. The design
 does not infer acknowledgement from desktop window focus.

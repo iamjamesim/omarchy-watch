@@ -260,3 +260,75 @@ void watch_face_layout_set_agent(watch_face_layout_t *layout, bool visible)
         lv_obj_add_flag(layout->agent_touch, LV_OBJ_FLAG_HIDDEN);
     }
 }
+
+static void agent_bounce(void *object, int32_t y)
+{
+    lv_obj_set_y(object, y);
+}
+
+static void agent_pulse(void *object, int32_t opacity)
+{
+    lv_obj_set_style_text_opa(object, opacity, 0);
+}
+
+static void agent_sway(void *object, int32_t phase)
+{
+    const int32_t wave = lv_trigo_sin(phase);
+    const int32_t rounding = wave < 0 ? -16384 : 16384;
+    lv_obj_set_style_translate_x(object, (wave * 2 + rounding) / 32768, 0);
+    /* LVGL rotation uses tenths of a degree: a relaxed +/-4 degree tilt. */
+    lv_obj_set_style_transform_rotation(object, wave * 40 / 32768, 0);
+}
+
+void watch_face_layout_set_agent_state(watch_face_layout_t *layout,
+                                       watch_agent_state_t state, bool animate)
+{
+    if (layout->agent_state == state && layout->agent_animated == animate) {
+        return;
+    }
+    layout->agent_state = state;
+    layout->agent_animated = animate;
+    lv_obj_t *agent = layout->agent;
+    lv_anim_delete(agent, NULL);
+    lv_obj_set_y(agent, 53);
+    lv_obj_set_style_translate_x(agent, 0, 0);
+    lv_obj_set_style_transform_rotation(agent, 0, 0);
+    lv_obj_set_style_text_opa(agent, LV_OPA_COVER, 0);
+    watch_face_layout_set_agent(layout, state != WATCH_AGENT_IDLE);
+    if (!animate || state == WATCH_AGENT_IDLE) {
+        return;
+    }
+
+    lv_anim_t animation;
+    lv_anim_init(&animation);
+    lv_anim_set_var(&animation, agent);
+    lv_anim_set_repeat_count(&animation, LV_ANIM_REPEAT_INFINITE);
+    lv_anim_set_path_cb(&animation, lv_anim_path_ease_in_out);
+    switch (state) {
+    case WATCH_AGENT_WORKING:
+        lv_anim_set_exec_cb(&animation, agent_pulse);
+        lv_anim_set_values(&animation, LV_OPA_COVER, 100);
+        lv_anim_set_duration(&animation, 1300);
+        lv_anim_set_playback_duration(&animation, 1300);
+        break;
+    case WATCH_AGENT_ATTENTION:
+        /* Preserve the original attention bounce exactly. */
+        lv_anim_set_exec_cb(&animation, agent_bounce);
+        lv_anim_set_values(&animation, 53, 47);
+        lv_anim_set_duration(&animation, 320);
+        lv_anim_set_playback_duration(&animation, 320);
+        lv_anim_set_repeat_delay(&animation, 360);
+        break;
+    case WATCH_AGENT_FINISHED:
+        lv_obj_set_style_transform_pivot_x(agent, 19, 0);
+        lv_obj_set_style_transform_pivot_y(agent, 19, 0);
+        lv_anim_set_exec_cb(&animation, agent_sway);
+        lv_anim_set_values(&animation, 0, 360);
+        lv_anim_set_duration(&animation, 4200);
+        lv_anim_set_path_cb(&animation, lv_anim_path_linear);
+        break;
+    default:
+        return;
+    }
+    lv_anim_start(&animation);
+}

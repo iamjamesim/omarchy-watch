@@ -71,9 +71,11 @@ AGENT_LEDGER_MAX_AGE_SECONDS = 24 * 60 * 60
 ACTIVITY_NONE = 0
 ACTIVITY_WORKING = 1
 ACTIVITY_ATTENTION = 2
+ACTIVITY_FINISHED = 3
 ACTIVITY_ALERT = 1 << 0
 ACTIVITY_SOUND = 1 << 1
 CAP_COMPLETION_SOUND = 1 << 7
+CAP_ACTIVITY_FINISHED = 1 << 8
 
 
 def parse_hex_color(value: object, fallback: bytes) -> bytes:
@@ -249,6 +251,7 @@ class AgentActivityLedger:
                     "session": session,
                     "turn": turn,
                     "state": "attention",
+                    "needsInput": bool(record.get("needsInput", False)),
                     "revision": revision,
                     "completedAt": completed_at,
                     "delivered": bool(record.get("delivered")),
@@ -292,10 +295,12 @@ class AgentActivityLedger:
         return True
 
     def completed(self, source: str, session: str, turn: str,
-                  completed_at: int | None = None) -> bool:
+                  completed_at: int | None = None, *, needs_input: bool = False) -> bool:
         key = self.key(source, session)
         previous = self.sessions.get(key)
-        if previous and previous["state"] == "attention" and previous["turn"] == turn:
+        if (previous and previous["state"] == "attention" and
+                previous["turn"] == turn and
+                previous.get("needsInput", False) == needs_input):
             return False
         if previous and previous["state"] == "working" and previous["turn"] != turn:
             # A delayed completion from an older turn must not replace newer work.
@@ -305,6 +310,7 @@ class AgentActivityLedger:
             "session": session,
             "turn": turn,
             "state": "attention",
+            "needsInput": needs_input,
             "revision": self.next_revision(),
             "completedAt": int(time.time()) if completed_at is None else completed_at,
             # Every distinct completion gets one alert. Successful delivery is
@@ -360,7 +366,9 @@ class AgentActivityLedger:
                 0 <= now - record["completedAt"] <= AGENT_ALERT_FRESH_SECONDS
                 for record in attention
             )
-            return ACTIVITY_ATTENTION, self.revision, fresh_undelivered
+            state = (ACTIVITY_ATTENTION if any(record.get("needsInput", False)
+                     for record in attention) else ACTIVITY_FINISHED)
+            return state, self.revision, fresh_undelivered
         if any(record["state"] == "working" for record in self.sessions.values()):
             return ACTIVITY_WORKING, self.revision, False
         return ACTIVITY_NONE, self.revision, False
@@ -1935,7 +1943,7 @@ class WatchDaemon:
         magic, version, state, flags, _, revision, acknowledged = struct.unpack(
             "<2sBBBBII", value
         )
-        if magic != b"OA" or version != 1 or state > ACTIVITY_ATTENTION:
+        if magic != b"OA" or version != 1 or state > ACTIVITY_FINISHED:
             return None
         return revision, acknowledged, flags
 
@@ -1952,6 +1960,9 @@ class WatchDaemon:
 
     def activity_payload(self) -> bytes:
         state, revision, alert = self.agent_activity.aggregate()
+        if (state == ACTIVITY_FINISHED and
+                not int(self.state.get("capabilities", 0) or 0) & CAP_ACTIVITY_FINISHED):
+            state = ACTIVITY_ATTENTION
         flags = ACTIVITY_ALERT if alert else 0
         if (alert and self.completion_sound and
                 int(self.state.get("capabilities", 0) or 0) & CAP_COMPLETION_SOUND):
@@ -2048,7 +2059,7 @@ class WatchDaemon:
         turn = self.valid_agent_identifier(command.get("turn"))
         event = str(command.get("event", ""))
         if not source or not session or event not in {
-            "working", "completed", "interrupted", "ended",
+            "working", "completed", "needs-input", "interrupted", "ended",
         }:
             self.log("Ignored invalid agent activity event")
             return
@@ -2058,6 +2069,12 @@ class WatchDaemon:
             if not turn:
                 return
             if self.agent_activity.working(source, session, turn):
+                self.agent_activity_changed()
+            return
+        if event == "needs-input":
+            if not turn:
+                return
+            if self.agent_activity.completed(source, session, turn, needs_input=True):
                 self.agent_activity_changed()
             return
         if event == "completed":

@@ -805,7 +805,7 @@ class AgentActivityTests(unittest.TestCase):
             self.assertTrue(ledger.completed(
                 "provider", "session-1", "turn-1", completed_at=int(time.time())
             ))
-            self.assertEqual(ledger.aggregate()[0], daemon.ACTIVITY_ATTENTION)
+            self.assertEqual(ledger.aggregate()[0], daemon.ACTIVITY_FINISHED)
             self.assertTrue(ledger.working("provider", "session-1", "turn-2"))
             self.assertEqual(ledger.aggregate()[0], daemon.ACTIVITY_WORKING)
 
@@ -815,13 +815,13 @@ class AgentActivityTests(unittest.TestCase):
             now = int(time.time())
             ledger.completed("provider", "one", "turn-1", completed_at=now)
             state, revision, alert = ledger.aggregate(now)
-            self.assertEqual(state, daemon.ACTIVITY_ATTENTION)
+            self.assertEqual(state, daemon.ACTIVITY_FINISHED)
             self.assertTrue(alert)
 
             ledger.mark_delivered_through(revision)
             ledger.completed("provider", "two", "turn-2", completed_at=now)
             state, revision, alert = ledger.aggregate(now)
-            self.assertEqual(state, daemon.ACTIVITY_ATTENTION)
+            self.assertEqual(state, daemon.ACTIVITY_FINISHED)
             self.assertTrue(alert)
 
             ledger.mark_delivered_through(revision)
@@ -885,7 +885,7 @@ class AgentActivityTests(unittest.TestCase):
             )
 
             state, _, alert = ledger.aggregate(now)
-            self.assertEqual(state, daemon.ACTIVITY_ATTENTION)
+            self.assertEqual(state, daemon.ACTIVITY_FINISHED)
             self.assertFalse(alert)
 
     def test_only_pending_completions_survive_daemon_restart(self):
@@ -909,6 +909,60 @@ class AgentActivityTests(unittest.TestCase):
         self.assertEqual(
             daemon.WatchDaemon.parse_activity_packet(payload), (42, 21, 1)
         )
+
+    def test_input_request_takes_priority_and_survives_restart(self):
+        with tempfile.TemporaryDirectory() as directory:
+            now = int(time.time())
+            ledger = self.make_ledger(directory, epoch=now)
+            ledger.working("provider", "busy", "turn-1")
+            ledger.completed("provider", "done", "turn-1")
+            self.assertEqual(ledger.aggregate()[0], daemon.ACTIVITY_FINISHED)
+            ledger.completed("provider", "question", "turn-1", needs_input=True)
+            self.assertEqual(ledger.aggregate()[0], daemon.ACTIVITY_ATTENTION)
+            restored = self.make_ledger(directory, epoch=now)
+            self.assertEqual(restored.aggregate()[0], daemon.ACTIVITY_ATTENTION)
+            restored.remove("provider", "question")
+            self.assertEqual(restored.aggregate()[0], daemon.ACTIVITY_FINISHED)
+
+    def test_completion_after_input_request_is_a_new_alert(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = self.make_ledger(directory)
+            ledger.completed("provider", "one", "turn-1", needs_input=True)
+            ledger.mark_delivered_through(ledger.revision)
+            self.assertTrue(ledger.completed("provider", "one", "turn-1"))
+            self.assertEqual(ledger.aggregate()[0], daemon.ACTIVITY_FINISHED)
+            self.assertTrue(ledger.aggregate()[2])
+            ledger.acknowledge_through(ledger.revision)
+            self.assertEqual(ledger.aggregate()[0], daemon.ACTIVITY_NONE)
+
+    def test_finished_state_requires_firmware_capability(self):
+        with tempfile.TemporaryDirectory() as directory:
+            watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
+            watch.agent_activity = self.make_ledger(directory)
+            watch.agent_activity.completed("provider", "one", "turn-1")
+            watch.completion_sound = False
+            for capabilities, expected in (
+                (0, daemon.ACTIVITY_ATTENTION),
+                (daemon.CAP_ACTIVITY_FINISHED, daemon.ACTIVITY_FINISHED),
+            ):
+                watch.state = {"capabilities": capabilities}
+                payload = watch.activity_payload()
+                self.assertEqual(struct.unpack("<2sBBBBII", payload)[2], expected)
+                self.assertIsNotNone(watch.parse_activity_packet(payload))
+
+    def test_explicit_input_event_cancels_pending_completion(self):
+        with tempfile.TemporaryDirectory() as directory:
+            watch = daemon.WatchDaemon.__new__(daemon.WatchDaemon)
+            watch.agent_activity = self.make_ledger(directory)
+            watch.cancel_pending_completion = mock.Mock()
+            watch.agent_activity_changed = mock.Mock()
+            watch.handle_agent_event({
+                "source": "provider", "session": "one", "turn": "turn-1",
+                "event": "needs-input",
+            })
+            watch.cancel_pending_completion.assert_called_once_with("provider", "one")
+            self.assertEqual(watch.agent_activity.aggregate()[0], daemon.ACTIVITY_ATTENTION)
+            watch.agent_activity_changed.assert_called_once()
 
     def test_fresh_completion_requests_sound_when_supported_and_enabled(self):
         with tempfile.TemporaryDirectory() as directory:

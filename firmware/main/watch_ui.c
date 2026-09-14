@@ -22,6 +22,12 @@ LV_FONT_DECLARE(jetbrains_mono_27);
 LV_FONT_DECLARE(jetbrains_mono_42);
 LV_FONT_DECLARE(jetbrains_mono_114);
 
+_Static_assert((int)WATCH_AGENT_IDLE == OMARCHY_ACTIVITY_NONE &&
+               (int)WATCH_AGENT_WORKING == OMARCHY_ACTIVITY_WORKING &&
+               (int)WATCH_AGENT_ATTENTION == OMARCHY_ACTIVITY_ATTENTION &&
+               (int)WATCH_AGENT_FINISHED == OMARCHY_ACTIVITY_FINISHED,
+               "Agent presentation and protocol states must agree");
+
 enum {
     DISPLAY_WIDTH = 410,
     DISPLAY_HEIGHT = 502,
@@ -156,36 +162,14 @@ static void present_screen_locked(void)
     arm_display_timeout(DISPLAY_TIMEOUT_MS);
 }
 
-static void set_agent_y(void *object, int32_t y)
-{
-    lv_obj_set_y((lv_obj_t *)object, y);
-}
-
 static void update_agent(void)
 {
     if (!face_visible) {
         return;
     }
-    lv_anim_delete(face_layout.agent, set_agent_y);
-    lv_obj_set_y(face_layout.agent, 53);
-    watch_face_layout_set_agent(
-        &face_layout, agent_activity_state != OMARCHY_ACTIVITY_NONE
+    watch_face_layout_set_agent_state(
+        &face_layout, (watch_agent_state_t)agent_activity_state, display_awake
     );
-    if (agent_activity_state != OMARCHY_ACTIVITY_ATTENTION) {
-        return;
-    }
-
-    lv_anim_t animation;
-    lv_anim_init(&animation);
-    lv_anim_set_var(&animation, face_layout.agent);
-    lv_anim_set_exec_cb(&animation, set_agent_y);
-    lv_anim_set_values(&animation, 53, 47);
-    lv_anim_set_duration(&animation, 320);
-    lv_anim_set_playback_duration(&animation, 320);
-    lv_anim_set_repeat_delay(&animation, 360);
-    lv_anim_set_repeat_count(&animation, LV_ANIM_REPEAT_INFINITE);
-    lv_anim_set_path_cb(&animation, lv_anim_path_ease_in_out);
-    lv_anim_start(&animation);
 }
 
 static void update_connection(void)
@@ -365,7 +349,8 @@ static void on_agent_tap(lv_event_t *event)
 {
     (void)event;
     if (!face_visible || !display_awake ||
-        agent_activity_state != OMARCHY_ACTIVITY_ATTENTION ||
+        (agent_activity_state != OMARCHY_ACTIVITY_ATTENTION &&
+         agent_activity_state != OMARCHY_ACTIVITY_FINISHED) ||
         (int32_t)(agent_tap_allowed_after - lv_tick_get()) > 0) {
         return;
     }
@@ -441,6 +426,7 @@ static void display_sleep(lv_timer_t *timer)
         return;
     }
     display_awake = false;
+    update_agent();
     if (clock_timer != NULL) lv_timer_pause(clock_timer);
     if (battery_timer != NULL) lv_timer_pause(battery_timer);
     lvgl_port_stop();
@@ -525,6 +511,7 @@ static void finish_profile_update(bool preview_started)
     bsp_display_brightness_set(active_brightness_percent);
     if (preview_started) {
         bsp_display_lock(0);
+        update_agent();
         arm_display_timeout(DISPLAY_PREVIEW_TIMEOUT_MS);
         bsp_display_unlock();
     }
@@ -688,7 +675,7 @@ void watch_ui_apply_profile_v3(const omarchy_profile_v3_t *profile)
 
 void watch_ui_apply_activity(uint8_t state, bool alert, bool sound)
 {
-    if (state > OMARCHY_ACTIVITY_ATTENTION) {
+    if (state > OMARCHY_ACTIVITY_FINISHED) {
         return;
     }
     const bool wake = alert && display_preview_allowed();

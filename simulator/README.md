@@ -45,6 +45,18 @@ Append a percentage to render the temporary battery-detail state:
 simulator/build/render-watchface /tmp/battery.ppm '#101315' '#cacccc' '#798186' '70%'
 ```
 
+For agent animation previews, append a state and an output frame prefix:
+
+```bash
+simulator/build/render-watchface /tmp/watch.ppm '#101315' '#cacccc' '#798186' '70%' finished /tmp/sway
+magick -delay 4 -loop 0 /tmp/sway-*.ppm /tmp/sway.gif
+```
+
+States are `working`, `attention`, `finished`, and `idle`. The renderer emits
+complete animation cycles at 40 ms intervals using the same animations as the
+firmware, then checks sleep/wake and idle animation cleanup. Use a fresh frame
+prefix for each state so frames from longer sequences do not remain in the glob.
+
 The PNG is exact at the framebuffer level. Display calibration, ambient light,
 rounded glass, and viewing distance still make the physical watch the final
 authority for optical decisions.

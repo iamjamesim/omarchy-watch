@@ -21,9 +21,11 @@ forecast without waiting for Bluetooth.
 Firmware 0.5 adds a short completion chime through the board speaker. It is
 enabled by default and toggleable from the Omarchy panel. The GPIO18 haptic
 pattern remains available for boards fitted with an optional vibration motor.
-Working activity is static. An attention snapshot wakes the display for five
-seconds and bounces the glyph while visible; display sleep pauses the animation
-without clearing attention. Tapping the robot persists an acknowledgement
+Working activity gently pulses. Input requests keep the original bounce, while
+finished work sways slowly through a four-degree tilt and two-pixel lateral
+movement. Fresh alerts wake the display for five seconds. Animations stop during
+display sleep without clearing state. Tapping an input or finished indicator
+persists an acknowledgement
 revision in NVS and notifies the desktop when connected.
 
 While the native serial/JTAG interface is connected to a USB host, ESP-IDF

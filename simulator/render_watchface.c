@@ -64,10 +64,10 @@ int main(int argc, char **argv)
 {
     const char *output_path = argc > 1 ? argv[1] : "watchface.ppm";
     watch_face_theme_t theme = WATCH_FACE_DEFAULT_THEME;
-    if (argc != 1 && argc != 2 && argc != 5 && argc != 6) {
+    if (argc != 1 && argc != 2 && argc != 5 && argc != 6 && argc != 8) {
         fputs(
             "usage: render-watchface [output.ppm "
-            "[background foreground accent [battery%]]]\n",
+            "[background foreground accent [battery% [agent-state frame-prefix]]]]\n",
             stderr
         );
         return 2;
@@ -114,13 +114,57 @@ int main(int argc, char **argv)
     watch_face_layout_create(lv_screen_active(), &layout, &theme);
     watch_face_layout_set_time(&layout, "Tue 8 Sep", "05:59", "PM");
     watch_face_layout_set_battery(
-        &layout, "󰂀", true, argc == 6 ? argv[5] : "70%", argc == 6
+        &layout, "󰂀", true, argc >= 6 ? argv[5] : "70%", argc >= 6
     ); // U+F0080, battery-70
     watch_face_layout_set_weather(
         &layout, "", "68°", "PARTLY\nCLOUDY",
         "H 72°  L 61°", " SAN FRANCISCO"
     );
     watch_face_layout_set_agent(&layout, true);
+    if (argc == 8) {
+        watch_agent_state_t state;
+        if (strcmp(argv[6], "working") == 0) state = WATCH_AGENT_WORKING;
+        else if (strcmp(argv[6], "attention") == 0) state = WATCH_AGENT_ATTENTION;
+        else if (strcmp(argv[6], "finished") == 0) state = WATCH_AGENT_FINISHED;
+        else if (strcmp(argv[6], "idle") == 0) state = WATCH_AGENT_IDLE;
+        else {
+            fputs("agent-state must be idle, working, attention, or finished\n", stderr);
+            return 2;
+        }
+        /* Start from a visible fixture, including when testing the idle state. */
+        layout.agent_state = WATCH_AGENT_FINISHED;
+        watch_face_layout_set_agent_state(&layout, state, true);
+        const unsigned duration = state == WATCH_AGENT_WORKING ? 5200 :
+                                  state == WATCH_AGENT_FINISHED ? 4200 : 4000;
+        for (unsigned frame = 0; frame < duration / 40; ++frame) {
+            lv_anim_refr_now();
+            lv_refr_now(display);
+            char frame_path[1024];
+            snprintf(frame_path, sizeof(frame_path), "%s-%03u.ppm", argv[7], frame);
+            if (write_ppm(frame_path, &draw_buffer) != 0) return 1;
+            lv_tick_inc(40);
+        }
+        /* Sleeping must cancel motion; waking restores it, and idle clears it. */
+        watch_face_layout_set_agent_state(&layout, state, false);
+        if (lv_anim_count_running() != 0 ||
+                lv_obj_get_style_transform_rotation(layout.agent, 0) != 0 ||
+                lv_obj_get_style_translate_x(layout.agent, 0) != 0 ||
+                lv_obj_get_style_text_opa(layout.agent, 0) != LV_OPA_COVER) {
+            fputs("Agent animation did not reset for sleep\n", stderr);
+            return 1;
+        }
+        watch_face_layout_set_agent_state(&layout, state, true);
+        if (state != WATCH_AGENT_IDLE && lv_anim_count_running() != 1) {
+            fputs("Agent animation did not resume on wake\n", stderr);
+            return 1;
+        }
+        watch_face_layout_set_agent_state(&layout, WATCH_AGENT_IDLE, true);
+        if (lv_anim_count_running() != 0 ||
+                !lv_obj_has_flag(layout.agent, LV_OBJ_FLAG_HIDDEN)) {
+            fputs("Idle agent was not cleared\n", stderr);
+            return 1;
+        }
+    }
     lv_refr_now(display);
 
     const int result = write_ppm(output_path, &draw_buffer);

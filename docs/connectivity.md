@@ -97,7 +97,7 @@ versions remain unchanged:
 | ---: | --- |
 | 2 | `OA` magic |
 | 1 | activity protocol version (`1`) |
-| 1 | state (`0` idle, `1` working, `2` attention) |
+| 1 | state (`0` idle, `1` working, `2` needs input, `3` finished) |
 | 1 | flags (bit 0 requests one fresh alert; bit 1 requests its sound) |
 | 1 | reserved |
 | 4 | monotonic activity revision |
@@ -108,6 +108,18 @@ from the same characteristic returns the watch's acknowledgement revision. A
 snapshot restores visual state after reconnect, while the alert flag is sent
 once for each fresh, not-yet-delivered completion. Sound is capability-gated so
 older firmware never receives a flag it cannot parse.
+
+Capability bit 8 advertises the distinct finished state. The desktop maps
+finished back to legacy attention (`2`) when that bit is absent. New firmware
+still accepts older desktops' attention snapshots. Packet size and version stay
+unchanged. Both input requests and completions retain acknowledgement and
+once-per-revision alert behavior.
+
+The local `agent-event` command accepts `needs-input` alongside `working`,
+`completed`, `interrupted`, and `ended`. Input requests take priority over
+unacknowledged completions, which take priority over working sessions. Providers
+must explicitly report input requests; a completed turn is not inspected for
+questions. Existing Codex lifecycle hooks report completion only.
 
 The public `0.4.0` GATT database is the compatibility boundary. Firmware
 upgrades keep its services, characteristics, and permissions stable and evolve

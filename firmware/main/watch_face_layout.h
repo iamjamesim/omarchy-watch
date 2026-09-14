@@ -10,6 +10,13 @@ enum {
     WATCH_FACE_HEIGHT = 502,
 };
 
+typedef enum {
+    WATCH_AGENT_IDLE,
+    WATCH_AGENT_WORKING,
+    WATCH_AGENT_ATTENTION,
+    WATCH_AGENT_FINISHED,
+} watch_agent_state_t;
+
 typedef struct {
     uint8_t background[3];
     uint8_t foreground[3];
@@ -27,6 +34,8 @@ typedef struct {
     lv_obj_t *connection;
     lv_obj_t *agent;
     lv_obj_t *agent_touch;
+    watch_agent_state_t agent_state;
+    bool agent_animated;
     lv_obj_t *weather_icon;
     lv_obj_t *temperature;
     lv_obj_t *condition;
@@ -50,6 +59,8 @@ void watch_face_layout_set_battery(watch_face_layout_t *layout,
                                    bool show_percentage);
 void watch_face_layout_set_connected(watch_face_layout_t *layout, bool connected);
 void watch_face_layout_set_agent(watch_face_layout_t *layout, bool visible);
+void watch_face_layout_set_agent_state(watch_face_layout_t *layout,
+                                       watch_agent_state_t state, bool animate);
 void watch_face_layout_set_weather(watch_face_layout_t *layout,
                                    const char *icon,
                                    const char *temperature,
