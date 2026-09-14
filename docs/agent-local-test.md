@@ -48,7 +48,9 @@ to create a temporary socket. This does not contact the actual watch.
 
 ## Acceptance checks
 
-- Temporary calibration UI: tap the date to open, tap the background to cycle
+- Temporary calibration UI: opens automatically at boot until CLOSE is tapped.
+  It survives profile refreshes, retaining the selected radius. Tap the date to
+  reopen, tap the background to cycle
   outer corner radii 50–120 px, tap CLOSE to exit. Grey reveals the physical illuminated edge;
   cyan is a 10 px inset centerline. Select the most even spacing around all four
   corners and provide a head-on photo. No selection is saved. This local-test

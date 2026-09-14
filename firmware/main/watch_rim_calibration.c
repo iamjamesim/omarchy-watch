@@ -9,6 +9,7 @@ static lv_obj_t *outline;
 static lv_obj_t *caption;
 static lv_point_precise_t points[WATCH_RIM_POINT_COUNT];
 static unsigned selected;
+static bool calibration_enabled = true;
 static const int radii[] = {50, 60, 70, 80, 90, 100, 110, 120};
 
 static void refresh_outline(void)
@@ -24,12 +25,9 @@ static void refresh_outline(void)
 static void calibration_event(lv_event_t *event)
 {
     switch (lv_event_get_code(event)) {
-    case LV_EVENT_SHORT_CLICKED:
+    case LV_EVENT_CLICKED:
         selected = (selected + 1) % (sizeof(radii) / sizeof(radii[0]));
         refresh_outline();
-        break;
-    case LV_EVENT_LONG_PRESSED:
-        lv_obj_delete(overlay);
         break;
     case LV_EVENT_DELETE:
         overlay = NULL;
@@ -42,13 +40,14 @@ static void calibration_event(lv_event_t *event)
 static void close_calibration(lv_event_t *event)
 {
     (void)event;
+    calibration_enabled = false;
     if (overlay != NULL) lv_obj_delete(overlay);
 }
 
 void watch_face_show_rim_calibration(void)
 {
     if (overlay != NULL) return;
-    selected = 0;
+    calibration_enabled = true;
     overlay = lv_obj_create(lv_screen_active());
     lv_obj_remove_style_all(overlay);
     lv_obj_set_size(overlay, WATCH_FACE_WIDTH, WATCH_FACE_HEIGHT);
@@ -70,10 +69,16 @@ void watch_face_show_rim_calibration(void)
     lv_obj_t *close = lv_button_create(overlay);
     lv_obj_set_size(close, 200, 58);
     lv_obj_set_pos(close, 105, 350);
-    lv_obj_add_event_cb(close, close_calibration, LV_EVENT_SHORT_CLICKED, NULL);
+    lv_obj_add_event_cb(close, close_calibration, LV_EVENT_CLICKED, NULL);
     lv_obj_t *close_text = lv_label_create(close);
     lv_obj_set_style_text_font(close_text, &jetbrains_mono_22, 0);
     lv_label_set_text(close_text, "CLOSE");
     lv_obj_center(close_text);
     refresh_outline();
+    printf("watch calibration: shown R%d\n", radii[selected]);
+}
+
+void watch_face_restore_rim_calibration(void)
+{
+    if (calibration_enabled) watch_face_show_rim_calibration();
 }

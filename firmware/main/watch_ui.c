@@ -611,7 +611,7 @@ void watch_ui_show_face(void)
     watch_face_layout_create(screen, &face_layout, &face_theme);
     face_visible = true;
     lv_obj_add_flag(face_layout.date, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(face_layout.date, on_date_tap, LV_EVENT_SHORT_CLICKED, NULL);
+    lv_obj_add_event_cb(face_layout.date, on_date_tap, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(
         face_layout.battery_touch, on_battery_tap, LV_EVENT_CLICKED, NULL
     );
@@ -626,6 +626,7 @@ void watch_ui_show_face(void)
     update_agent();
     clock_timer = lv_timer_create(update_clock, 1000, NULL);
     battery_timer = lv_timer_create(update_battery, 15000, NULL);
+    watch_face_restore_rim_calibration();
     present_screen_locked();
     bsp_display_unlock();
 }

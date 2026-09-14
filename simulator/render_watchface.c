@@ -215,12 +215,29 @@ int main(int argc, char **argv)
         }
     }
     if (getenv("WATCH_PREVIEW_CALIBRATION") != NULL) {
+        lv_obj_add_flag(layout.date, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_update_layout(lv_screen_active());
+        lv_point_t date_point = {100, 75};
+        if (lv_indev_search_obj(lv_screen_active(), &date_point) != layout.date) {
+            fputs("Date touch target obstructed\n", stderr);
+            return 1;
+        }
         const unsigned children = lv_obj_get_child_count(lv_screen_active());
         watch_face_show_rim_calibration();
         lv_obj_t *overlay = lv_obj_get_child(lv_screen_active(), -1);
-        for (unsigned i = 0; i < 8; ++i) lv_obj_send_event(overlay, LV_EVENT_SHORT_CLICKED, NULL);
+        lv_obj_update_layout(lv_screen_active());
+        lv_point_t background_point = {100, 120};
+        lv_point_t close_point = {200, 375};
+        if (lv_indev_search_obj(lv_screen_active(), &background_point) != overlay ||
+            lv_indev_search_obj(lv_screen_active(), &close_point) != lv_obj_get_child(overlay, 2)) {
+            fputs("Calibration touch target obstructed\n", stderr);
+            return 1;
+        }
+        for (unsigned i = 0; i < 8; ++i) lv_obj_send_event(overlay, LV_EVENT_CLICKED, NULL);
         if (strstr(lv_label_get_text(lv_obj_get_child(overlay, 1)), "R 50 PX") == NULL) return 1;
-        lv_obj_send_event(lv_obj_get_child(overlay, 2), LV_EVENT_SHORT_CLICKED, NULL);
+        lv_obj_send_event(lv_obj_get_child(overlay, 2), LV_EVENT_CLICKED, NULL);
+        if (lv_obj_get_child_count(lv_screen_active()) != children) return 1;
+        watch_face_restore_rim_calibration();
         if (lv_obj_get_child_count(lv_screen_active()) != children) return 1;
         watch_face_show_rim_calibration();
     }
