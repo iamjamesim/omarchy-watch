@@ -6,6 +6,7 @@
 #include "lvgl.h"
 #include "watch_face_layout.h"
 #include "watch_profile.h"
+#include "watch_rim_geometry.h"
 #include <time.h>
 #include "allowance_preview.h"
 
@@ -65,6 +66,10 @@ static int parse_color(const char *text, uint8_t color[3])
 
 int main(int argc, char **argv)
 {
+    if (argc == 2 && strcmp(argv[1], "--corner-radius") == 0) {
+        printf("%d\n", WATCH_SCREEN_CORNER_RADIUS);
+        return 0;
+    }
     const char *allowance = getenv("WATCH_PREVIEW_ALLOWANCE");
     int remaining = 79;
     if (allowance != NULL) {
@@ -208,6 +213,16 @@ int main(int argc, char **argv)
             fputs("Idle agent was not cleared\n", stderr);
             return 1;
         }
+    }
+    if (getenv("WATCH_PREVIEW_CALIBRATION") != NULL) {
+        const unsigned children = lv_obj_get_child_count(lv_screen_active());
+        watch_face_show_rim_calibration();
+        lv_obj_t *overlay = lv_obj_get_child(lv_screen_active(), -1);
+        for (unsigned i = 0; i < 8; ++i) lv_obj_send_event(overlay, LV_EVENT_SHORT_CLICKED, NULL);
+        if (strstr(lv_label_get_text(lv_obj_get_child(overlay, 1)), "R 50 PX") == NULL) return 1;
+        lv_obj_send_event(overlay, LV_EVENT_LONG_PRESSED, NULL);
+        if (lv_obj_get_child_count(lv_screen_active()) != children) return 1;
+        watch_face_show_rim_calibration();
     }
     lv_refr_now(display);
 

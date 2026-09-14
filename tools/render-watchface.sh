@@ -31,9 +31,10 @@ trap 'rm -f "$ppm_path"' EXIT
 "$build_dir/render-watchface" "$ppm_path"
 
 magick "$ppm_path" "$output_dir/watchface.png"
+corner_radius=$("$build_dir/render-watchface" --corner-radius)
 magick "$output_dir/watchface.png" \
     \( +clone -alpha extract -fill black -colorize 100 \
-       -fill white -draw "roundrectangle 0,0,409,501,46,46" \) \
+       -fill white -draw "roundrectangle 0,0,409,501,$corner_radius,$corner_radius" \) \
     -alpha off -compose CopyOpacity -composite \
     "$output_dir/watchface-rounded.png"
 

@@ -1,4 +1,5 @@
 #include "watch_face_layout.h"
+#include "watch_rim_geometry.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -23,19 +24,8 @@ void watch_face_layout_set_allowance(watch_face_layout_t *layout, int remaining,
         layout->allowance_fill = lv_line_create(lv_screen_active());
         layout->allowance_title = label(417);
         layout->allowance_reset = label(447);
-        const double cx[] = {360, 360, 50, 50};
-        const double cy[] = {50, 452, 452, 50};
-        unsigned n = 0;
-        layout->allowance_points[n++] = (lv_point_precise_t){205, 10};
-        for (int corner = 0; corner < 4; ++corner) {
-            for (int step = 0; step <= 16; ++step) {
-                double angle = (-90 + corner * 90 + step * 90.0 / 16) * 3.141592653589793 / 180;
-                layout->allowance_points[n++] = (lv_point_precise_t){cx[corner] + 40 * cos(angle),
-                                                                   cy[corner] + 40 * sin(angle)};
-            }
-        }
-        layout->allowance_points[n++] = layout->allowance_points[0];
-        lv_line_set_points(layout->allowance_track, layout->allowance_points, n);
+        watch_rim_points(layout->allowance_points, WATCH_SCREEN_CORNER_RADIUS, WATCH_RIM_INSET);
+        lv_line_set_points(layout->allowance_track, layout->allowance_points, WATCH_RIM_POINT_COUNT);
         lv_obj_set_style_line_width(layout->allowance_track, 3, 0);
         lv_obj_set_style_line_width(layout->allowance_fill, 3, 0);
         lv_obj_set_style_line_rounded(layout->allowance_fill, true, 0);

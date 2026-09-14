@@ -52,6 +52,7 @@ typedef struct {
 } watch_face_layout_t;
 
 extern const watch_face_theme_t WATCH_FACE_DEFAULT_THEME;
+void watch_face_show_rim_calibration(void);
 void watch_face_layout_set_allowance(watch_face_layout_t *layout, int remaining,
                                      unsigned window, int64_t reset_seconds);
 

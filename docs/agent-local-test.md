@@ -48,6 +48,13 @@ to create a temporary socket. This does not contact the actual watch.
 
 ## Acceptance checks
 
+- Temporary calibration UI: hold the date to open, tap to cycle outer corner
+  radii 50–120 px, hold to close. Grey reveals the physical illuminated edge;
+  cyan is a 10 px inset centerline. Select the most even spacing around all four
+  corners and provide a head-on photo. No selection is saved. This local-test
+  affordance should be removed once geometry is calibrated. Current 50 px outer
+  radius remains provisional; rim and simulator mask now share its definition.
+
 - Start a turn: excited face pulses, not bounces.
 - In Plan mode, explicitly ask Codex to use `request_user_input`: it bounces
   while waiting, resumes pulsing after the answer, then uses happy eyes/sway
