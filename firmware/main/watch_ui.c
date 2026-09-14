@@ -34,6 +34,7 @@ enum {
     BATTERY_PERCENTAGE_TIMEOUT_MS = 3000,
     WEATHER_MAX_AGE_SECONDS = 6 * 60 * 60,
     DISPLAY_BUFFER_HEIGHT = 100,
+    DISPLAY_IDLE_TASK_SLEEP_MS = 10000,
 };
 
 static watch_face_layout_t face_layout;
@@ -533,7 +534,7 @@ esp_err_t watch_ui_start(void)
 {
     lvgl_port_cfg_t port_cfg = ESP_LVGL_PORT_INIT_CONFIG();
     port_cfg.timer_period_ms = 20;
-    port_cfg.task_max_sleep_ms = 1000;
+    port_cfg.task_max_sleep_ms = DISPLAY_IDLE_TASK_SLEEP_MS;
     if (start_display(&port_cfg) == NULL) {
         return ESP_FAIL;
     }
