@@ -1,18 +1,21 @@
 # Codex allowance rim
 
-Compare two static, simulator-only concepts on the existing watch face:
+The selected design is a thin rounded perimeter, with provider, remaining
+percentage, and reset countdown in the former location compartment. The rejected
+bar experiment and temporary on-device calibration controls have been removed.
 
-- **Bar:** replace location with provider, remaining percentage, a thin bar,
-  and the allowance window/reset countdown.
-- **Rim:** move the gauge to a thin rounded perimeter; keep the same textual
-  information in the location compartment so the frame has an explicit meaning.
+Physical-watch review settled on a 115 px outer radius, 2 px centerline inset,
+and 3 px stroke. The depleted track uses the accent at 40% opacity; remaining
+allowance uses full opacity. There is no animation or sync footer.
 
-Both use the existing palette, no animation, and no sync footer. Fixtures cover
-79%, 10%, 0%, 100%, and unavailable. The default 79% is the complement of a
-21%-used example, not a live account reading. Reset time is fixed sample text.
-The rim is now the selected implementation and uses the shared firmware renderer.
-The bar remains simulator-only. Transport and expiration are implemented;
-physical-watch validation is still required.
+Remaining text uses the accent at 20% or less, otherwise normal foreground.
+The reset line always uses foreground. Unknown or expired readings do not trigger
+a low warning. Battery uses the same 20% threshold, plus accent while charging;
+the lightning bolt remains charging-only.
+
+The simulator uses the shared firmware renderer. Its default 79% is a fixture,
+not a live account reading, and reset time is fixed sample text unless using
+the live-profile preview. Transport and expiration are implemented.
 
 The rim keeps the bottom compartment quieter and provides an ambient fuel signal.
 Provider, remaining percentage, window, and reset countdown remain explicit so

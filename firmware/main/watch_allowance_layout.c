@@ -35,7 +35,6 @@ void watch_face_layout_set_allowance(watch_face_layout_t *layout, int remaining,
     lv_color_t accent = lv_obj_get_style_text_color(layout->agent, 0);
     lv_obj_set_style_line_color(layout->allowance_track, accent, 0);
     lv_obj_set_style_line_color(layout->allowance_fill, accent, 0);
-    lv_obj_set_style_text_color(layout->allowance_title, lv_obj_get_style_text_color(layout->date, 0), 0);
     lv_obj_set_style_text_color(layout->allowance_reset, lv_obj_get_style_text_color(layout->date, 0), 0);
     char title[40], reset[48];
     if (remaining < 0 || remaining > 100 || reset_seconds <= 0) {
@@ -54,6 +53,8 @@ void watch_face_layout_set_allowance(watch_face_layout_t *layout, int remaining,
                      (long long)(minutes / 60), (long long)(minutes % 60));
         else snprintf(reset, sizeof(reset), "%s RESET %lldm", name, (long long)(minutes > 0 ? minutes : 1));
     }
+    lv_obj_set_style_text_color(layout->allowance_title,
+        watch_face_resource_low(remaining) ? accent : lv_obj_get_style_text_color(layout->date, 0), 0);
     if (strcmp(lv_label_get_text(layout->allowance_title), title) != 0)
         lv_label_set_text(layout->allowance_title, title);
     if (strcmp(lv_label_get_text(layout->allowance_reset), reset) != 0)

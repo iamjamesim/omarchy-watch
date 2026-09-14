@@ -18,7 +18,6 @@ add_executable(render-watchface
     render_watchface.c
     ../firmware/main/watch_face_layout.c
     ../firmware/main/watch_allowance_layout.c
-    ../firmware/main/watch_rim_calibration.c
     ../firmware/main/fonts/jetbrains_mono_14_battery.c
     ../firmware/main/fonts/jetbrains_mono_22.c
     ../firmware/main/fonts/jetbrains_mono_26_connection.c

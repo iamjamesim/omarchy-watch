@@ -4,7 +4,6 @@ idf_component_register(
         "watch_ble.c"
         "watch_face_layout.c"
         "watch_allowance_layout.c"
-        "watch_rim_calibration.c"
         "watch_haptics.c"
         "watch_power.c"
         "watch_rtc.c"

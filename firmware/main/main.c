@@ -5,8 +5,6 @@
 #include "esp_log.h"
 #include "esp_pm.h"
 #include "esp_random.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
 #include "nvs.h"
 #include "nvs_flash.h"
 
@@ -176,6 +174,4 @@ void app_main(void)
         ESP_LOGE(TAG, "Bluetooth startup failed: %s", esp_err_to_name(err));
         watch_ui_show_error("BLUETOOTH UNAVAILABLE");
     }
-    ESP_LOGI(TAG, "Startup main-task stack minimum free: %u bytes",
-             (unsigned)uxTaskGetStackHighWaterMark(NULL));
 }

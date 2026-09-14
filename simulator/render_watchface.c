@@ -8,7 +8,45 @@
 #include "watch_profile.h"
 #include "watch_rim_geometry.h"
 #include <time.h>
-#include "allowance_preview.h"
+
+static void test_resource_colors(void)
+{
+    const watch_face_theme_t theme = {
+        .background = {0, 0, 0}, .foreground = {200, 200, 200}, .accent = {255, 0, 100}
+    };
+    watch_face_layout_t layout;
+    watch_face_layout_create(lv_screen_active(), &layout, &theme);
+    const lv_color_t foreground = lv_color_make(200, 200, 200);
+    const lv_color_t accent = lv_color_make(255, 0, 100);
+    const int values[] = {-1, 0, 10, 19, 20, 21, 100, 255};
+    for (unsigned i = 0; i < sizeof(values) / sizeof(values[0]); ++i) {
+        const int value = values[i];
+        const bool low = value >= 0 && value <= 20;
+        for (int charging = 0; charging <= 1; ++charging) {
+            for (int detail = 0; detail <= 1; ++detail) {
+                watch_face_layout_set_battery(&layout, "󰂀", charging, value, "20%", detail);
+                const lv_color_t expected = charging || low ? accent : foreground;
+                if (!lv_color_eq(lv_obj_get_style_text_color(layout.battery, 0), expected) ||
+                    !lv_color_eq(lv_obj_get_style_text_color(layout.battery_percentage, 0), expected) ||
+                    lv_obj_has_flag(layout.battery_charge, LV_OBJ_FLAG_HIDDEN) != (!charging || detail)) {
+                    fputs("Battery color/charging regression\n", stderr);
+                    exit(1);
+                }
+            }
+        }
+        watch_face_layout_set_allowance(&layout, value, 1, 3600);
+        if (!lv_color_eq(lv_obj_get_style_text_color(layout.allowance_title, 0), low ? accent : foreground) ||
+            !lv_color_eq(lv_obj_get_style_text_color(layout.allowance_reset, 0), foreground)) {
+            fputs("Allowance color regression\n", stderr);
+            exit(1);
+        }
+    }
+    watch_face_layout_set_allowance(&layout, 10, 1, 0);
+    if (!lv_color_eq(lv_obj_get_style_text_color(layout.allowance_title, 0), foreground)) {
+        fputs("Expired allowance highlighted as low\n", stderr);
+        exit(1);
+    }
+}
 
 static void flush_display(lv_display_t *display, const lv_area_t *area, uint8_t *pixels)
 {
@@ -76,9 +114,9 @@ int main(int argc, char **argv)
         const char *value = getenv("WATCH_PREVIEW_REMAINING");
         char *end = NULL;
         long parsed = value ? strtol(value, &end, 10) : 79;
-        if ((strcmp(allowance, "bar") != 0 && strcmp(allowance, "rim") != 0) ||
+        if (strcmp(allowance, "rim") != 0 ||
             (value && (end == value || *end != '\0')) || parsed < -1 || parsed > 100) {
-            fputs("allowance must be bar or rim; remaining must be -1 (unavailable) or 0..100\n", stderr);
+            fputs("allowance must be rim; remaining must be -1 (unavailable) or 0..100\n", stderr);
             return 2;
         }
         remaining = (int)parsed;
@@ -131,11 +169,13 @@ int main(int argc, char **argv)
     lv_display_set_render_mode(display, LV_DISPLAY_RENDER_MODE_DIRECT);
     lv_display_set_flush_cb(display, flush_display);
 
+    test_resource_colors();
     watch_face_layout_t layout;
     watch_face_layout_create(lv_screen_active(), &layout, &theme);
     watch_face_layout_set_time(&layout, "Tue 8 Sep", "05:59", "PM");
     watch_face_layout_set_battery(
-        &layout, "󰂀", true, argc >= 6 ? argv[5] : "70%", argc >= 6
+        &layout, "󰂀", true, argc >= 6 ? atoi(argv[5]) : 70,
+        argc >= 6 ? argv[5] : "70%", argc >= 6
     ); // U+F0080, battery-70
     watch_face_layout_set_weather(
         &layout, "", "68°", "PARTLY\nCLOUDY",
@@ -144,7 +184,7 @@ int main(int argc, char **argv)
     watch_face_layout_set_agent(&layout, true);
     if (allowance != NULL) {
         watch_face_layout_set_connected(&layout, true);
-        allowance_preview(&layout, &theme, allowance, remaining);
+        watch_face_layout_set_allowance(&layout, remaining, 1, 4 * 86400 + 20 * 3600);
     }
     const char *profile_path = getenv("WATCH_PREVIEW_PROFILE");
     if (profile_path != NULL) {
@@ -213,33 +253,6 @@ int main(int argc, char **argv)
             fputs("Idle agent was not cleared\n", stderr);
             return 1;
         }
-    }
-    if (getenv("WATCH_PREVIEW_CALIBRATION") != NULL) {
-        lv_obj_add_flag(layout.date, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_update_layout(lv_screen_active());
-        lv_point_t date_point = {100, 75};
-        if (lv_indev_search_obj(lv_screen_active(), &date_point) != layout.date) {
-            fputs("Date touch target obstructed\n", stderr);
-            return 1;
-        }
-        const unsigned children = lv_obj_get_child_count(lv_screen_active());
-        watch_face_show_rim_calibration();
-        lv_obj_t *overlay = lv_obj_get_child(lv_screen_active(), -1);
-        lv_obj_update_layout(lv_screen_active());
-        lv_point_t background_point = {100, 120};
-        lv_point_t close_point = {200, 375};
-        if (lv_indev_search_obj(lv_screen_active(), &background_point) != overlay ||
-            lv_indev_search_obj(lv_screen_active(), &close_point) != lv_obj_get_child(overlay, 2)) {
-            fputs("Calibration touch target obstructed\n", stderr);
-            return 1;
-        }
-        for (unsigned i = 0; i < 8; ++i) lv_obj_send_event(overlay, LV_EVENT_CLICKED, NULL);
-        if (strstr(lv_label_get_text(lv_obj_get_child(overlay, 1)), "R 50 PX") == NULL) return 1;
-        lv_obj_send_event(lv_obj_get_child(overlay, 2), LV_EVENT_CLICKED, NULL);
-        if (lv_obj_get_child_count(lv_screen_active()) != children) return 1;
-        watch_face_restore_rim_calibration();
-        if (lv_obj_get_child_count(lv_screen_active()) != children) return 1;
-        watch_face_show_rim_calibration();
     }
     lv_refr_now(display);
 

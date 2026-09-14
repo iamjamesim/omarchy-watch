@@ -213,10 +213,12 @@ void watch_face_layout_set_time(watch_face_layout_t *layout,
 void watch_face_layout_set_battery(watch_face_layout_t *layout,
                                    const char *glyph,
                                    bool charging,
+                                   int percent,
                                    const char *percentage,
                                    bool show_percentage)
 {
-    const lv_color_t battery_color = charging ? accent_color : foreground_color;
+    const lv_color_t battery_color = charging || watch_face_resource_low(percent)
+                                        ? accent_color : foreground_color;
     lv_label_set_text(layout->battery, glyph);
     lv_label_set_text(layout->battery_percentage, percentage);
     lv_obj_set_style_text_color(layout->battery, battery_color, 0);

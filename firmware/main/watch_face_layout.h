@@ -52,8 +52,11 @@ typedef struct {
 } watch_face_layout_t;
 
 extern const watch_face_theme_t WATCH_FACE_DEFAULT_THEME;
-void watch_face_show_rim_calibration(void);
-void watch_face_restore_rim_calibration(void);
+/* Unknown readings must not be presented as a low resource warning. */
+static inline bool watch_face_resource_low(int percent)
+{
+    return percent >= 0 && percent <= 20;
+}
 void watch_face_layout_set_allowance(watch_face_layout_t *layout, int remaining,
                                      unsigned window, int64_t reset_seconds);
 
@@ -67,6 +70,7 @@ void watch_face_layout_set_time(watch_face_layout_t *layout,
 void watch_face_layout_set_battery(watch_face_layout_t *layout,
                                    const char *glyph,
                                    bool charging,
+                                   int percent,
                                    const char *percentage,
                                    bool show_percentage);
 void watch_face_layout_set_connected(watch_face_layout_t *layout, bool connected);

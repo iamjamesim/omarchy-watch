@@ -61,14 +61,13 @@ The PNG is exact at the framebuffer level. Display calibration, ambient light,
 rounded glass, and viewing distance still make the physical watch the final
 authority for optical decisions.
 
-## Allowance design experiment
+## Allowance preview and resource-color checks
 
-These options use fixed fixtures. The rim uses the shared firmware implementation;
-the bar is retained only for comparison:
+These options use fixed fixtures and the shared firmware rim implementation.
+Every render also checks the 20% highlight boundary, charging, unavailable data,
+and the reset line's foreground color.
 
 ```bash
-WATCH_PREVIEW_ALLOWANCE=bar WATCH_PREVIEW_REMAINING=79 \
-  simulator/build/render-watchface simulator/output/allowance-bar.ppm
 WATCH_PREVIEW_ALLOWANCE=rim WATCH_PREVIEW_REMAINING=79 \
   simulator/build/render-watchface simulator/output/allowance-rim.ppm
 ```
