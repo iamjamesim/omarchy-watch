@@ -6,6 +6,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -43,7 +44,7 @@ ACTIVITY_UUID = "7f510004-1b15-4f0d-b7a5-4cf3a2c98ee1"
 AGENT_PATH = "/io/github/omarchy/watch/agent"
 GATT_APPLICATION_PATH = "/io/github/omarchy/watch/gatt"
 GATT_PROFILE_PATH = f"{GATT_APPLICATION_PATH}/profile0"
-PROTOCOL_VERSION = 3
+PROTOCOL_VERSION = 4
 PAIRING_TIMEOUT_SECONDS = 20
 PAIRING_CLEANUP_MILLISECONDS = 750
 PAIRING_RETRY_DELAY_MILLISECONDS = 5000
@@ -215,6 +216,64 @@ def fetch_weather(opener=urllib.request.urlopen) -> dict:
         "fahrenheit": imperial,
         "location": location["name"],
     }
+
+
+def read_codex_allowance(path: Path, epoch: int) -> dict:
+    """Read Omarchy's versioned output, never credentials or transcripts.
+
+    Unknown data is distinct from empty allowance. Reject any unsupported
+    window rather than silently presenting one window as overall availability.
+    """
+    unavailable = {"remaining": 255, "window": 0, "updatedAt": 0, "resetsAt": 0}
+    try:
+        with path.open() as source:
+            raw = source.read(262145)
+        if len(raw) > 262144:
+            raise ValueError("record too large")
+        record = json.loads(raw)
+        if (not isinstance(record, dict) or type(record.get("schemaVersion")) is not int or
+                record["schemaVersion"] != 1 or record.get("id") != "codex" or
+                record.get("usageStatusText") or record.get("retryAdvised")):
+            raise ValueError("unsupported record or provider error")
+        def timestamp(value):
+            if not isinstance(value, str):
+                raise ValueError("missing timestamp")
+            parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+            if parsed.utcoffset() is None:
+                raise ValueError("timestamp lacks timezone")
+            result = int(parsed.timestamp())
+            if not 1704067200 <= result <= 3155759999:
+                raise ValueError("timestamp outside watch range")
+            return result
+        updated = timestamp(record.get("updatedAt"))
+        if not 0 <= epoch - updated <= 1800:
+            raise ValueError("stale or future-dated record")
+        windows = record.get("limits")
+        if not isinstance(windows, list) or not windows:
+            raise ValueError("no allowance windows")
+        candidates = []
+        for item in windows:
+            if not isinstance(item, dict):
+                raise ValueError("invalid window")
+            used = item.get("percent")
+            if type(used) not in (int, float) or not math.isfinite(used) or not 0 <= used <= 1:
+                raise ValueError("invalid used fraction")
+            label = item.get("label")
+            if label == "Weekly (7-day)":
+                window = 1
+            elif isinstance(label, str) and re.fullmatch(r"[1-9][0-9]*[hm] window", label):
+                window = 2
+            else:
+                raise ValueError("unsupported allowance window")
+            reset = timestamp(item.get("resetsAt"))
+            if reset <= epoch:
+                raise ValueError("window reset; waiting for fresh limits")
+            candidates.append((used, window, reset))
+        used, window, reset = max(candidates, key=lambda item: item[0])
+        return {"remaining": int(math.floor(100 * (1 - used) + 0.5)),
+                "window": window, "updatedAt": updated, "resetsAt": reset}
+    except (OSError, ValueError, TypeError, OverflowError, RecursionError) as error:
+        return {**unavailable, "reason": str(error)}
 
 
 class AgentActivityLedger:
@@ -710,7 +769,7 @@ class WatchDaemon:
             "location": ascii_label(weather.get("location", "")),
         }
 
-    def profile_fingerprint(self) -> str:
+    def profile_fingerprint(self, epoch: int | None = None) -> str:
         now = dt.datetime.now().astimezone()
         offset = int((now.utcoffset() or dt.timedelta()).total_seconds() // 60)
         background, foreground, accent = self.palette
@@ -725,6 +784,15 @@ class WatchDaemon:
             "brightness": self.brightness,
             "weather": self.effective_weather(),
         }
+        if self.watch_protocol >= 4:
+            path = xdg_path("XDG_STATE_HOME", ".local/state") / "omarchy/agents/usage/codex.json"
+            allowance = read_codex_allowance(path, int(now.timestamp()) if epoch is None else epoch)
+            reason = allowance.pop("reason", "")
+            if reason != getattr(self, "allowance_error", ""):
+                self.log(f"Allowance unavailable: {reason}" if reason else "Allowance available")
+                self.allowance_error = reason
+            self.allowance = allowance
+            document["allowance"] = allowance
         encoded = json.dumps(document, sort_keys=True, separators=(",", ":")).encode()
         return hashlib.sha256(encoded).hexdigest()
 
@@ -1762,7 +1830,7 @@ class WatchDaemon:
         now = dt.datetime.now().astimezone()
         offset = int((now.utcoffset() or dt.timedelta()).total_seconds() // 60)
         epoch = int(now.timestamp())
-        self.desired_fingerprint = self.profile_fingerprint()
+        self.desired_fingerprint = self.profile_fingerprint(epoch)
         self.inflight_fingerprint = self.desired_fingerprint
         self.inflight_theme = self.current_theme_name()
         self.inflight_was_forced = self.force_sync_requested
@@ -1809,10 +1877,15 @@ class WatchDaemon:
                 "<2sBBIqhBB16s3s3sqhhhB24s",
                 *values,
             )
-        return struct.pack(
+        payload = struct.pack(
             "<2sBBIqhBB16s3s3sqhhhB24s3sB",
             *values, accent, self.brightness,
         )
+        if self.watch_protocol >= 4:
+            value = self.allowance
+            payload += struct.pack("<BBqq", value["remaining"], value["window"],
+                                   value["updatedAt"], value["resetsAt"])
+        return payload
 
     @staticmethod
     def desktop_hour_cycle() -> int:

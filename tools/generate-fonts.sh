@@ -43,7 +43,7 @@ npx "${common[@]}" --size 14 \
   --output "$output_dir/jetbrains_mono_14_battery.c"
 
 npx "${common[@]}" --size 22 \
-  --range 0x20,0x25,0x30-0x39,0x48,0x4C,0xB0 \
+  --range 0x20,0x25,0x2D,0x30-0x39,0x41-0x5A,0x64,0x68,0x6D,0xB0 \
   --output "$output_dir/jetbrains_mono_22.c"
 
 npx "${common[@]}" --size 26 \
@@ -55,7 +55,7 @@ npx "${common[@]}" --size 30 \
   --output "$output_dir/jetbrains_mono_30_battery.c"
 
 npx "${common[@]}" --size 32 \
-  --range 0xF16A3 \
+  --range 0xF16A3,0xF1719 \
   --output "$output_dir/jetbrains_mono_32_agent.c"
 
 npx "${common[@]}" --size 42 \

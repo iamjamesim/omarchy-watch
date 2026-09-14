@@ -6,7 +6,7 @@
 
 enum {
     OMARCHY_PROTOCOL_VERSION_MIN = 1,
-    OMARCHY_PROTOCOL_VERSION = 3,
+    OMARCHY_PROTOCOL_VERSION = 4,
     OMARCHY_PROFILE_KIND = 1,
     OMARCHY_FIRMWARE_VERSION_MAJOR = 0,
     OMARCHY_FIRMWARE_VERSION_MINOR = 5,
@@ -82,6 +82,23 @@ typedef struct __attribute__((packed)) {
     uint8_t brightness_percent;
 } omarchy_profile_v3_t;
 
+/* v4 retains the complete v3 prefix. 255 means allowance unavailable.
+ * Window: 1 = weekly, 2 = session. Provider is Codex for this version. */
+typedef struct __attribute__((packed)) {
+    omarchy_profile_v3_t base;
+    uint8_t allowance_remaining;
+    uint8_t allowance_window;
+    int64_t allowance_updated_at;
+    int64_t allowance_resets_at;
+} omarchy_profile_v4_t;
+
+static inline int omarchy_allowance_remaining(uint8_t remaining, int64_t updated,
+                                              int64_t resets, int64_t now)
+{
+    return remaining <= 100 && updated <= now && now - updated <= 1800 && resets > now
+        ? remaining : -1;
+}
+
 typedef struct __attribute__((packed)) {
     uint8_t magic[2];
     uint8_t protocol_min;
@@ -124,6 +141,7 @@ typedef struct __attribute__((packed)) {
 _Static_assert(sizeof(omarchy_profile_v1_t) == 36, "profile wire size changed");
 _Static_assert(sizeof(omarchy_profile_v2_t) == 81, "v2 profile wire size changed");
 _Static_assert(sizeof(omarchy_profile_v3_t) == 85, "v3 profile wire size changed");
+_Static_assert(sizeof(omarchy_profile_v4_t) == 103, "v4 profile wire size changed");
 _Static_assert(sizeof(omarchy_identity_v1_t) == 32, "identity wire size changed");
 _Static_assert(sizeof(omarchy_activity_v1_t) == 14, "activity wire size changed");
 
@@ -186,7 +204,7 @@ static inline bool omarchy_profile_v3_is_valid(const omarchy_profile_v3_t *profi
                                (profile->flags & OMARCHY_PROFILE_WEATHER_VALID) != 0;
 
     return profile != NULL && profile->magic[0] == 'O' && profile->magic[1] == 'W' &&
-           profile->version == OMARCHY_PROTOCOL_VERSION &&
+           profile->version == 3 &&
            profile->kind == OMARCHY_PROFILE_KIND &&
            profile->unix_time >= earliest_supported_time &&
            profile->unix_time <= latest_supported_time &&
@@ -202,4 +220,20 @@ static inline bool omarchy_profile_v3_is_valid(const omarchy_profile_v3_t *profi
              profile->low_temperature >= -99 && profile->low_temperature <= 199 &&
              profile->weather_code <= 99 &&
              memchr(profile->location, '\0', sizeof(profile->location)) != NULL));
+}
+
+static inline bool omarchy_profile_v4_is_valid(const omarchy_profile_v4_t *profile)
+{
+    if (profile == NULL || profile->base.version != 4) return false;
+    omarchy_profile_v3_t base = profile->base;
+    base.version = 3;
+    return omarchy_profile_v3_is_valid(&base) &&
+        ((profile->allowance_remaining == 255 && profile->allowance_window == 0 &&
+          profile->allowance_updated_at == 0 && profile->allowance_resets_at == 0) ||
+         (profile->allowance_remaining <= 100 &&
+          (profile->allowance_window == 1 || profile->allowance_window == 2) &&
+          profile->allowance_updated_at >= INT64_C(1704067200) &&
+          profile->allowance_updated_at <= base.unix_time &&
+          profile->allowance_resets_at > base.unix_time &&
+          profile->allowance_resets_at <= INT64_C(3155759999)));
 }

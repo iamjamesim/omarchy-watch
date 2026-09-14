@@ -5,6 +5,9 @@
 
 #include "lvgl.h"
 #include "watch_face_layout.h"
+#include "watch_profile.h"
+#include <time.h>
+#include "allowance_preview.h"
 
 static void flush_display(lv_display_t *display, const lv_area_t *area, uint8_t *pixels)
 {
@@ -62,6 +65,19 @@ static int parse_color(const char *text, uint8_t color[3])
 
 int main(int argc, char **argv)
 {
+    const char *allowance = getenv("WATCH_PREVIEW_ALLOWANCE");
+    int remaining = 79;
+    if (allowance != NULL) {
+        const char *value = getenv("WATCH_PREVIEW_REMAINING");
+        char *end = NULL;
+        long parsed = value ? strtol(value, &end, 10) : 79;
+        if ((strcmp(allowance, "bar") != 0 && strcmp(allowance, "rim") != 0) ||
+            (value && (end == value || *end != '\0')) || parsed < -1 || parsed > 100) {
+            fputs("allowance must be bar or rim; remaining must be -1 (unavailable) or 0..100\n", stderr);
+            return 2;
+        }
+        remaining = (int)parsed;
+    }
     const char *output_path = argc > 1 ? argv[1] : "watchface.ppm";
     watch_face_theme_t theme = WATCH_FACE_DEFAULT_THEME;
     if (argc != 1 && argc != 2 && argc != 5 && argc != 6 && argc != 8) {
@@ -121,6 +137,29 @@ int main(int argc, char **argv)
         "H 72°  L 61°", " SAN FRANCISCO"
     );
     watch_face_layout_set_agent(&layout, true);
+    if (allowance != NULL) {
+        watch_face_layout_set_connected(&layout, true);
+        allowance_preview(&layout, &theme, allowance, remaining);
+    }
+    const char *profile_path = getenv("WATCH_PREVIEW_PROFILE");
+    if (profile_path != NULL) {
+        omarchy_profile_v4_t profile;
+        FILE *input = fopen(profile_path, "rb");
+        if (input == NULL) { perror(profile_path); return 2; }
+        const size_t size = fread(&profile, 1, sizeof(profile), input);
+        const bool extra = fgetc(input) != EOF;
+        fclose(input);
+        if (size != sizeof(profile) || extra || !omarchy_profile_v4_is_valid(&profile)) {
+            fputs("Invalid v4 preview profile\n", stderr);
+            return 2;
+        }
+        const int64_t now = time(NULL);
+        watch_face_layout_set_connected(&layout, true);
+        watch_face_layout_set_allowance(&layout,
+            omarchy_allowance_remaining(profile.allowance_remaining, profile.allowance_updated_at,
+                                        profile.allowance_resets_at, now),
+            profile.allowance_window, profile.allowance_resets_at - now);
+    }
     if (argc == 8) {
         watch_agent_state_t state;
         if (strcmp(argv[6], "working") == 0) state = WATCH_AGENT_WORKING;
@@ -134,6 +173,11 @@ int main(int argc, char **argv)
         /* Start from a visible fixture, including when testing the idle state. */
         layout.agent_state = WATCH_AGENT_FINISHED;
         watch_face_layout_set_agent_state(&layout, state, true);
+        const char *expected_glyph = state == WATCH_AGENT_FINISHED ? "󱜙" : "󱚣";
+        if (strcmp(lv_label_get_text(layout.agent), expected_glyph) != 0) {
+            fputs("Unexpected agent expression\n", stderr);
+            return 1;
+        }
         const unsigned duration = state == WATCH_AGENT_WORKING ? 5200 :
                                   state == WATCH_AGENT_FINISHED ? 4200 : 4000;
         for (unsigned frame = 0; frame < duration / 40; ++frame) {

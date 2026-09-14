@@ -289,6 +289,7 @@ void watch_face_layout_set_agent_state(watch_face_layout_t *layout,
     layout->agent_state = state;
     layout->agent_animated = animate;
     lv_obj_t *agent = layout->agent;
+    lv_label_set_text(agent, state == WATCH_AGENT_FINISHED ? "󱜙" : "󱚣");
     lv_anim_delete(agent, NULL);
     lv_obj_set_y(agent, 53);
     lv_obj_set_style_translate_x(agent, 0, 0);

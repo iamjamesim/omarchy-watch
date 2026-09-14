@@ -90,6 +90,21 @@ Capability bits are time sync (`1 << 0`), hour cycle (`1 << 1`), board RTC
 describe optional device behavior; the negotiated protocol version determines
 profile packet layout.
 
+Version 4 appends an 18-byte Codex allowance snapshot to v3 (103 bytes total):
+
+| Bytes | Field |
+| ---: | --- |
+| 1 | remaining percentage, `0`–`100`, or `255` unavailable |
+| 1 | window: `1` weekly, `2` session, `0` unavailable |
+| 8 | source observation Unix timestamp, signed little-endian |
+| 8 | window reset Unix timestamp, signed little-endian |
+
+Unavailable snapshots use zero window/timestamps. The source observation is
+preserved, not replaced with sync time. Both sides expire readings after 30
+minutes or at reset; no refill is inferred. The newest common profile version
+is negotiated, so old firmware never receives these additional bytes. v4 does
+not request display wake or add alerts. See [allowance-preview.md](allowance-preview.md).
+
 Agent activity uses a separate encrypted 14-byte snapshot so older profile
 versions remain unchanged:
 

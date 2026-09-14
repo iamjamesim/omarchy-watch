@@ -65,6 +65,11 @@ static watch_face_theme_t face_theme = {
     .accent = {0x79, 0x81, 0x86},
 };
 static bool weather_valid;
+static bool allowance_supported;
+static uint8_t allowance_remaining = 255;
+static uint8_t allowance_window;
+static int64_t allowance_updated_at;
+static int64_t allowance_resets_at;
 static int64_t weather_updated_at;
 static int16_t weather_temperature;
 static int16_t weather_high;
@@ -241,6 +246,16 @@ static lv_obj_t *reset_screen(void)
     return screen;
 }
 
+static void update_allowance(void)
+{
+    if (!face_visible || !allowance_supported) return;
+    const int64_t now = time(NULL);
+    const int remaining = omarchy_allowance_remaining(allowance_remaining, allowance_updated_at,
+                                                     allowance_resets_at, now);
+    watch_face_layout_set_allowance(&face_layout, remaining,
+                                    allowance_window, allowance_resets_at - now);
+}
+
 static void update_clock(lv_timer_t *timer)
 {
     (void)timer;
@@ -277,6 +292,7 @@ static void update_clock(lv_timer_t *timer)
 
     snprintf(clock, sizeof(clock), "%02d:%02d", display_hour, now.tm_min);
     watch_face_layout_set_time(&face_layout, date, clock, suffix);
+    update_allowance();
 }
 
 static void update_battery(lv_timer_t *timer)
@@ -416,6 +432,7 @@ static void update_weather(void)
             "H --°  L --°", " LOCATION NOT SET"
         );
     }
+    update_allowance();
 }
 
 static void display_sleep(lv_timer_t *timer)
@@ -647,6 +664,7 @@ void watch_ui_apply_profile_v2(const omarchy_profile_v2_t *profile)
     if (profile == NULL) {
         return;
     }
+    allowance_supported = false;
     memcpy(face_theme.background, profile->background_rgb, sizeof(face_theme.background));
     memcpy(face_theme.foreground, profile->foreground_rgb, sizeof(face_theme.foreground));
     memcpy(face_theme.accent, profile->foreground_rgb, sizeof(face_theme.accent));
@@ -661,6 +679,7 @@ void watch_ui_apply_profile_v3(const omarchy_profile_v3_t *profile)
     if (profile == NULL) {
         return;
     }
+    allowance_supported = profile->version == 4;
     const bool preview_started = begin_display_preview(
         (profile->flags & OMARCHY_PROFILE_DISPLAY_PREVIEW) != 0
     );
@@ -671,6 +690,16 @@ void watch_ui_apply_profile_v3(const omarchy_profile_v3_t *profile)
     apply_weather((const omarchy_profile_v2_t *)profile);
     watch_ui_apply_time(profile->unix_time, profile->utc_offset_minutes, profile->hour_cycle);
     finish_profile_update(preview_started);
+}
+
+void watch_ui_apply_profile_v4(const omarchy_profile_v4_t *profile)
+{
+    if (profile == NULL) return;
+    allowance_remaining = profile->allowance_remaining;
+    allowance_window = profile->allowance_window;
+    allowance_updated_at = profile->allowance_updated_at;
+    allowance_resets_at = profile->allowance_resets_at;
+    watch_ui_apply_profile_v3(&profile->base);
 }
 
 void watch_ui_apply_activity(uint8_t state, bool alert, bool sound)

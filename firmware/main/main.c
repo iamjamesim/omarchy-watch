@@ -80,6 +80,16 @@ static bool load_cached_profile_v2(omarchy_profile_v2_t *profile)
            omarchy_profile_v2_is_valid(profile);
 }
 
+static bool load_cached_profile_v4(omarchy_profile_v4_t *profile)
+{
+    nvs_handle_t nvs;
+    if (nvs_open("omarchy", NVS_READONLY, &nvs) != ESP_OK) return false;
+    size_t length = sizeof(*profile);
+    esp_err_t err = nvs_get_blob(nvs, "profile_v4", profile, &length);
+    nvs_close(nvs);
+    return err == ESP_OK && length == sizeof(*profile) && omarchy_profile_v4_is_valid(profile);
+}
+
 static bool load_cached_profile_v3(omarchy_profile_v3_t *profile)
 {
     nvs_handle_t nvs;
@@ -121,11 +131,18 @@ void app_main(void)
     }
 
     if (owned) {
+        omarchy_profile_v4_t cached_profile_v4;
         omarchy_profile_v3_t cached_profile_v3;
         omarchy_profile_v2_t cached_profile_v2;
         omarchy_profile_v1_t cached_profile;
         int64_t rtc_time;
-        if (load_cached_profile_v3(&cached_profile_v3) &&
+        if (load_cached_profile_v4(&cached_profile_v4) &&
+            watch_rtc_get_time(&rtc_time) == ESP_OK &&
+            rtc_time >= cached_profile_v4.base.unix_time) {
+            cached_profile_v4.base.unix_time = rtc_time;
+            watch_ui_apply_profile_v4(&cached_profile_v4);
+            ESP_LOGI(TAG, "Restored trusted time and v4 profile from RTC");
+        } else if (load_cached_profile_v3(&cached_profile_v3) &&
             watch_rtc_get_time(&rtc_time) == ESP_OK &&
             rtc_time >= cached_profile_v3.unix_time) {
             cached_profile_v3.unix_time = rtc_time;

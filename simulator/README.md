@@ -61,6 +61,36 @@ The PNG is exact at the framebuffer level. Display calibration, ambient light,
 rounded glass, and viewing distance still make the physical watch the final
 authority for optical decisions.
 
+## Allowance design experiment
+
+These options use fixed fixtures. The rim uses the shared firmware implementation;
+the bar is retained only for comparison:
+
+```bash
+WATCH_PREVIEW_ALLOWANCE=bar WATCH_PREVIEW_REMAINING=79 \
+  simulator/build/render-watchface simulator/output/allowance-bar.ppm
+WATCH_PREVIEW_ALLOWANCE=rim WATCH_PREVIEW_REMAINING=79 \
+  simulator/build/render-watchface simulator/output/allowance-rim.ppm
+```
+
+Remaining accepts 0–100 or -1 for unavailable; default is 79. Reset text is a
+fixed fixture. Try 10, 0, 100, and -1 as well. Without these environment variables
+the original simulator behavior is unchanged. See
+[allowance-preview.md](../docs/allowance-preview.md) for source research and scope.
+
+Render local allowance through the real bridge encoder and firmware validator,
+without Bluetooth or services (requires the desktop Python dependencies):
+
+```bash
+python tools/preview-live-allowance.py
+python tools/preview-agent-ux.py
+```
+
+These retain a live allowance PNG and three agent-state GIFs; intermediate files
+are removed. Live allowance preview time/weather remain fixtures. Generated
+images are ignored. `simulator/build/test-profile` checks wire validation and
+expiry, and desktop tests also pass an encoded Python packet into that C test.
+
 When accepting a visual checkpoint, copy `simulator/output/watchface.png` to
 `docs/images/plain-01.png` so the repository landing page shows the accepted
 device framebuffer. Generated working previews remain ignored.

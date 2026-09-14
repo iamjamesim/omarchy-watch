@@ -41,9 +41,19 @@ typedef struct {
     lv_obj_t *condition;
     lv_obj_t *range;
     lv_obj_t *location;
+    lv_obj_t *allowance_track;
+    lv_obj_t *allowance_fill;
+    lv_obj_t *allowance_title;
+    lv_obj_t *allowance_reset;
+    lv_point_precise_t allowance_points[70];
+    lv_point_precise_t allowance_fill_points[70];
+    int allowance_remaining;
+    bool allowance_drawn;
 } watch_face_layout_t;
 
 extern const watch_face_theme_t WATCH_FACE_DEFAULT_THEME;
+void watch_face_layout_set_allowance(watch_face_layout_t *layout, int remaining,
+                                     unsigned window, int64_t reset_seconds);
 
 void watch_face_layout_create(lv_obj_t *screen,
                               watch_face_layout_t *layout,

@@ -111,8 +111,9 @@ work.
 Agent activity distinguishes working, needs input, finished, and absent.
 The face prioritizes input requests, then unacknowledged completions, then work.
 Omarchy's exact `robot-excited` glyph pulses in opacity over 2.6 seconds while
-working, keeps the original six-pixel bounce for input, and sways continuously
-over 4.2 seconds when finished (+/-4 degrees and +/-2 pixels). Idle is hidden.
+working and keeps the original six-pixel bounce for input. Finished uses the
+separate `robot-happy` glyph (U+F1719), swaying continuously over 4.2 seconds
+(+/-4 degrees and +/-2 pixels). Idle is hidden.
 Animations run only while the screen is awake, and repeated snapshots do not
 restart them. Every distinct fresh alert plays one toggleable speaker tone and
 wakes the face for five seconds. GPIO18 also emits a double pulse for boards

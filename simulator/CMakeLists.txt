@@ -17,6 +17,7 @@ add_subdirectory(
 add_executable(render-watchface
     render_watchface.c
     ../firmware/main/watch_face_layout.c
+    ../firmware/main/watch_allowance_layout.c
     ../firmware/main/fonts/jetbrains_mono_14_battery.c
     ../firmware/main/fonts/jetbrains_mono_22.c
     ../firmware/main/fonts/jetbrains_mono_26_connection.c
@@ -32,3 +33,8 @@ target_include_directories(render-watchface PRIVATE
     ../firmware/main/fonts
 )
 target_link_libraries(render-watchface PRIVATE lvgl m)
+
+add_executable(test-profile test_profile.c)
+target_include_directories(test-profile PRIVATE ../firmware/main)
+# Assertions are the tests, including in the simulator's Release build.
+target_compile_options(test-profile PRIVATE -UNDEBUG)
