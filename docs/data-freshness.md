@@ -41,9 +41,10 @@ wake the screen, play sounds, or start data-update animations.
   bridge respects a disabled provider and does not add an independent periodic
   Codex API poller.
 - Recovery also refreshes overdue weather. Requests in flight are combined;
-  failed requests are limited to one attempt per minute per source during
-  repeated recovery events. A changed weather location can start a new request
-  after the old request finishes.
+  failures retry after 1, 2, 4, 8, then 15 minutes. Manual weather retries can
+  skip the longer backoff. All weather attempts share a one-minute cooldown,
+  including location changes and repeated recovery events. Usage recovery
+  retains its one-minute cooldown.
 - Cached profiles can sync immediately while source fetches run asynchronously.
   Failures retain the last successful values and their original timestamps.
 - A weather location/unit change invalidates the old context immediately. A late

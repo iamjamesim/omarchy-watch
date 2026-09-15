@@ -53,10 +53,26 @@ sync; recovery can invoke Omarchy's existing limits-only collector. See
 [data freshness](../docs/data-freshness.md) for timestamps, cache files, and
 expiry rules.
 
-The panel's **Up to date** status and sync time describe delivery to the watch.
-They do not confirm a successful weather fetch: failures retain cached data and
-are reported in the service journal. The watch's history marker and tap-for-age
-detail indicate older readings.
+The panel separates **Watch sync** (last successful delivery and pending changes)
+from **Weather** (available desktop readings and fetch failures). **Sync now**
+sends available data; it does not refresh the provider or clear a fetch
+failure. A delivery without weather is flagged. Both statuses remain visible
+while the watch is disconnected.
+
+Weather is fetched about every 15 minutes. Failed requests automatically retry
+after 1, 2, 4, 8, then 15 minutes, retaining usable cached data. **Retry** appears
+after a failure when another request can be made; it can skip the longer backoff.
+All triggers share one in-flight request and a one-minute minimum
+between attempts, including location changes and manual retries. A successful
+fetch resumes the normal cadence; changed data syncs automatically when the
+watch is connected.
+
+The status document separates the reading's source time (`weatherUpdated`) and
+last successful download (`weatherFetched`) from the last successful delivery
+(`lastSynced`, `syncedWeather`). The delivery record captures the weather before
+the write, so a concurrent fetch cannot mislabel what the watch received.
+Detailed fetch errors remain in the service journal. These additions do not
+change the Bluetooth protocol.
 
 ## Codex alerts
 
@@ -212,8 +228,9 @@ Review the output before posting it and redact Bluetooth addresses or device
 IDs if desired.
 
 The command also accepts `pair <six-digit-code>`, `brightness <20-100>`,
-`sync`, and `rescan`. Brightness defaults to 50%; changing it or the resolved
-theme requests a five-second watch preview when the battery is above 15%.
+`sound <on|off>`, `sync`, `weather-retry`, and `rescan`. Brightness defaults to 50%;
+changing it or the resolved theme requests a five-second watch preview when the
+battery is above 15%.
 Routine weather and time synchronization does not wake the display.
 
 Run the desktop regression tests with:

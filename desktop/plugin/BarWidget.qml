@@ -24,6 +24,7 @@ Panel {
   })
   property string actionError: ""
   property string autoOpenedCandidate: ""
+  property double nowEpoch: Date.now() / 1000
 
   readonly property string ctlPath: String(setting("ctlPath", "omarchy-watchctl"))
   readonly property string statePath: (Quickshell.env("XDG_STATE_HOME")
@@ -43,6 +44,22 @@ Panel {
   readonly property bool brightnessAvailable: Number(watchState.protocol || 0) >= 3
     && (Number(watchState.capabilities || 0) & 32) !== 0
   readonly property bool soundAvailable: (Number(watchState.capabilities || 0) & 128) !== 0
+  readonly property string weatherState: String(watchState.weatherStatus || "unknown")
+  readonly property bool weatherFailed: Boolean(watchState.weatherFetchFailed)
+  readonly property bool weatherRefreshing: Boolean(watchState.weatherRefreshing)
+  readonly property bool weatherRetryCooling: nowEpoch < Number(watchState.weatherManualRetryAt || 0)
+  readonly property string weatherLabel: {
+    if (weatherRefreshing && weatherFailed) return "RETRYING"
+    if (weatherFailed) return "UPDATE FAILED"
+    if (weatherRefreshing && weatherState === "unavailable") return "GETTING WEATHER…"
+    switch (weatherState) {
+    case "unconfigured": return "LOCATION NEEDED"
+    case "fresh":
+    case "cached": return "UPDATED " + relativeSync(watchState.weatherUpdated)
+    case "forecast": return "CURRENT UNAVAILABLE"
+    default: return "UNAVAILABLE"
+    }
+  }
   readonly property color foreground: root.bar ? root.bar.foreground : Color.foreground
   readonly property color dim: Qt.darker(foreground, 1.45)
   readonly property string fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
@@ -99,18 +116,40 @@ Panel {
   }
 
   function relativeSync(epoch) {
-    var seconds = Math.max(0, Math.floor(Date.now() / 1000) - Number(epoch || 0))
+    if (!Number(epoch)) return "NEVER"
+    var seconds = Math.max(0, Math.floor(nowEpoch) - Number(epoch))
     if (seconds < 10) return "JUST NOW"
-    if (seconds < 60) return seconds + " SECONDS AGO"
+    if (seconds < 60) return seconds + " SECOND" + (seconds === 1 ? "" : "S") + " AGO"
     var minutes = Math.floor(seconds / 60)
-    if (minutes < 60) return minutes + " MINUTES AGO"
+    if (minutes < 60) return minutes + " MINUTE" + (minutes === 1 ? "" : "S") + " AGO"
     var hours = Math.floor(minutes / 60)
-    return hours + " HOURS AGO"
+    if (hours < 24) return hours + " HOUR" + (hours === 1 ? "" : "S") + " AGO"
+    var days = Math.floor(hours / 24)
+    return days + " DAY" + (days === 1 ? "" : "S") + " AGO"
+  }
+
+  function weatherDetail() {
+    if (weatherState === "unconfigured") return "Choose a location in the Weather panel."
+    if (weatherState === "forecast") return "Today's high and low are still available."
+    if (weatherState === "unavailable")
+      return weatherRefreshing && !weatherFailed ? ""
+        : weatherFailed ? "Weather couldn't be updated." : "No weather data available."
+    if (weatherFailed)
+      return "Using weather from " + relativeSync(watchState.weatherUpdated).toLowerCase() + "."
+    return ""
   }
 
   onOpenedChanged: if (opened) {
+    nowEpoch = Date.now() / 1000
     stateFile.reload()
     if (status === "found") Qt.callLater(function() { codeField.forceActiveFocus() })
+  }
+
+  Timer {
+    interval: root.weatherFailed && root.weatherRetryCooling ? 1000 : 30000
+    running: root.opened
+    repeat: true
+    onTriggered: root.nowEpoch = Date.now() / 1000
   }
 
   FileView {
@@ -193,9 +232,9 @@ Panel {
             textFormat: Text.PlainText
             text: root.status === "found" ? "READY TO PAIR"
               : root.status === "pairing" ? "PAIRING"
-              : root.status === "syncing" ? "SYNCHRONIZING"
-              : root.status === "ready" && root.pending ? "SYNC PENDING"
-              : root.status === "ready" ? "UP TO DATE"
+              : root.status === "syncing"
+                ? (Boolean(root.watchState.connected) ? "SYNCING" : "CONNECTING")
+              : root.status === "ready" ? "CONNECTED"
               : root.status === "bluetooth-off" ? "BLUETOOTH OFF"
               : root.status === "disconnected" ? "DISCONNECTED"
               : root.owned && root.status === "error" ? "DISCONNECTED"
@@ -283,7 +322,7 @@ Panel {
       }
 
       ColumnLayout {
-        visible: root.status === "pairing" || root.status === "syncing" || root.status === "paired"
+        visible: root.status === "pairing" || (!root.owned && (root.status === "syncing" || root.status === "paired"))
         Layout.fillWidth: true
         spacing: Style.space(6)
 
@@ -339,46 +378,136 @@ Panel {
       }
 
       ColumnLayout {
-        visible: root.ready
+        visible: root.owned
         Layout.fillWidth: true
         spacing: Style.space(8)
-
-        PanelSectionHeader {
-          text: "STATUS"
-          foreground: root.foreground
-          fontFamily: root.fontFamily
-        }
 
         RowLayout {
           Layout.fillWidth: true
 
-          Text {
-            text: "TIME + WEATHER + THEME"
-            color: root.foreground
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.body
+          PanelSectionHeader {
+            text: "WATCH SYNC"
+            foreground: root.foreground
+            fontFamily: root.fontFamily
           }
 
           Item { Layout.fillWidth: true }
 
           Text {
-            text: root.pending ? "WAITING TO SYNC" : root.relativeSync(root.watchState.lastSynced)
+            text: root.relativeSync(root.watchState.lastSynced)
             color: root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
           }
         }
 
+        Text {
+          Layout.fillWidth: true
+          visible: Number(root.watchState.lastSynced) > 0
+            && Boolean(root.watchState.syncedWeather)
+            && root.watchState.syncedWeather.valid === false
+          text: "Last sync did not include weather"
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          wrapMode: Text.WordWrap
+        }
+
+        Text {
+          visible: root.pending && root.status !== "syncing"
+          Layout.fillWidth: true
+          text: "Waiting to sync"
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+        }
+
         Button {
           id: syncButton
+          visible: root.ready || (root.status === "syncing" && Boolean(root.watchState.connected))
           Layout.fillWidth: true
-          text: root.busy ? "SYNCING" : "SYNC NOW"
+          text: root.status === "syncing" ? "SYNCING" : "SYNC NOW"
           bordered: true
           focusable: true
           enabled: !root.busy
           foreground: root.foreground
           fontFamily: root.fontFamily
           onClicked: root.run(["sync"])
+        }
+
+        PanelSeparator { Layout.fillWidth: true }
+
+        RowLayout {
+          Layout.fillWidth: true
+
+          PanelSectionHeader {
+            text: "WEATHER"
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+          }
+
+          Item { Layout.fillWidth: true }
+
+          Text {
+            text: root.weatherLabel
+            color: root.weatherFailed ? (root.bar ? root.bar.urgent : Color.urgent) : root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+          }
+        }
+
+        Text {
+          visible: root.weatherDetail() !== ""
+          Layout.fillWidth: true
+          textFormat: Text.PlainText
+          text: root.weatherDetail()
+          color: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.bodySmall
+          wrapMode: Text.WordWrap
+        }
+
+        Button {
+          visible: root.weatherFailed && !root.weatherRefreshing && !root.weatherRetryCooling
+          Layout.fillWidth: true
+          text: "RETRY"
+          bordered: true
+          focusable: true
+          enabled: !command.running
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          onClicked: root.run(["weather-retry"])
+        }
+
+        RowLayout {
+          spacing: Style.space(4)
+
+          Text {
+            text: "Data by"
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+          }
+
+          Text {
+            text: "open-meteo.com"
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            font.underline: true
+            activeFocusOnTab: true
+            Accessible.role: Accessible.Link
+            Accessible.name: "Open-Meteo weather data"
+            Accessible.onPressAction: Qt.openUrlExternally("https://open-meteo.com/")
+            Keys.onReturnPressed: Qt.openUrlExternally("https://open-meteo.com/")
+            Keys.onEnterPressed: Qt.openUrlExternally("https://open-meteo.com/")
+
+            MouseArea {
+              anchors.fill: parent
+              cursorShape: Qt.PointingHandCursor
+              onClicked: Qt.openUrlExternally("https://open-meteo.com/")
+            }
+          }
         }
 
         PanelSeparator {
@@ -424,7 +553,7 @@ Panel {
           step: 5
           integer: true
           value: Number(root.watchState.brightness || 50)
-          enabled: !root.busy
+          enabled: root.ready && !root.busy
           onReleased: function(value) {
             root.run(["brightness", String(Math.round(value))])
           }
@@ -457,36 +586,11 @@ Panel {
 
           ToggleSwitch {
             checked: Boolean(root.watchState.completionSound)
-            busy: root.busy
+            busy: !root.ready || root.busy
             foreground: root.foreground
             onToggled: root.run([
               "sound", Boolean(root.watchState.completionSound) ? "off" : "on"
             ])
-          }
-        }
-
-        Text {
-          visible: root.soundAvailable
-          Layout.fillWidth: true
-          text: "Needs input and task completion"
-          color: root.dim
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
-          wrapMode: Text.WordWrap
-        }
-
-        Text {
-          Layout.alignment: Qt.AlignHCenter
-          textFormat: Text.PlainText
-          text: "WEATHER DATA BY OPEN-METEO.COM"
-          color: root.foreground
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
-
-          MouseArea {
-            anchors.fill: parent
-            cursorShape: Qt.PointingHandCursor
-            onClicked: Qt.openUrlExternally("https://open-meteo.com/")
           }
         }
       }
