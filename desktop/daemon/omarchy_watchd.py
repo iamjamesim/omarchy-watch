@@ -623,6 +623,7 @@ class WatchDaemon:
         self.transport_recovery_source = 0
         self.recovery_inflight = False
         self.context_refresh_inflight = False
+        self.weather_fetch_failed = False
         self.context_refresh_source = 0
         self.context_monitors = []
         self.usage_monitor_root = None
@@ -811,6 +812,33 @@ class WatchDaemon:
             "location": ascii_label(weather.get("location", "")),
             **({"dailyExpiresAt": int(weather.get("dailyExpiresAt", 0))}
                if getattr(self, "watch_protocol", 1) >= 5 else {}),
+        }
+
+    def weather_status(self, epoch: int | None = None) -> dict:
+        """Describe the source separately from delivery of a profile to the watch."""
+        now = int(time.time()) if epoch is None else epoch
+        location = weather_location()
+        context = [location.get("latitude"), location.get("longitude"), weather_unit_override()]
+        same_request = bool(location) and context == getattr(self, "weather_refresh_context", None)
+        weather = self.effective_weather(now) if location else {"valid": False}
+        updated = weather.get("updatedAt", 0)
+        if not location:
+            status = "unconfigured"
+        elif not weather.get("valid"):
+            status = "unavailable"
+        elif self.watch_protocol >= 5 and now - updated > CURRENT_WEATHER_MAX_AGE_SECONDS:
+            status = "forecast"
+        elif now - updated > DATA_FRESH_SECONDS:
+            status = "cached"
+        else:
+            status = "fresh"
+        same_cache = bool(location) and self.weather.get("context") == context
+        return {
+            "weatherStatus": status,
+            "weatherRefreshing": same_request and self.context_refresh_inflight,
+            "weatherFetchFailed": same_request and getattr(self, "weather_fetch_failed", False),
+            "weatherUpdated": updated,
+            "weatherFetched": self.weather.get("fetchedAt", 0) if same_cache else 0,
         }
 
     def cached_allowance(self, epoch: int) -> dict:
@@ -1008,7 +1036,9 @@ class WatchDaemon:
         self.desired_fingerprint = fingerprint
         if changed and preview:
             self.preview_until = time.monotonic() + DISPLAY_PREVIEW_SECONDS
-        if changed:
+        weather_changed = any(self.state.get(key) != value
+                              for key, value in self.weather_status().items())
+        if changed or weather_changed:
             self.write_state()
         if (self.sync_pending() and self.state.get("paired") and
                 self.state.get("connected") and self.pending_passkey is None):
@@ -1068,9 +1098,12 @@ class WatchDaemon:
         if (request_context == getattr(self, "weather_refresh_context", None) and
                 time.monotonic() - getattr(self, "weather_refresh_attempt", 0) < 60):
             return
+        if request_context != getattr(self, "weather_refresh_context", None):
+            self.weather_fetch_failed = False
         self.weather_refresh_context = request_context
         self.weather_refresh_attempt = time.monotonic()
         self.context_refresh_inflight = True
+        self.write_state()
         threading.Thread(
             target=self.fetch_weather_context,
             name="watch-weather",
@@ -1094,6 +1127,7 @@ class WatchDaemon:
         if weather:
             changed = weather != self.weather
             self.weather = weather
+            self.weather_fetch_failed = False
             try:
                 self.cache_weather(weather)
             except OSError as error:
@@ -1105,7 +1139,9 @@ class WatchDaemon:
             if changed:
                 self.context_changed()
         elif error:
+            self.weather_fetch_failed = True
             self.log(f"Weather refresh kept cached data: {error}")
+            self.write_state()
             self.refresh_desired_profile()
         return False
 
@@ -1193,6 +1229,7 @@ class WatchDaemon:
 
     def write_state(self, **changes) -> None:
         self.state.update(changes)
+        self.state.update(self.weather_status())
         self.state["desiredRevision"] = self.desired_fingerprint
         self.state["syncedRevision"] = self.synced_fingerprint
         self.state_dir.mkdir(parents=True, exist_ok=True)
@@ -2102,7 +2139,7 @@ class WatchDaemon:
             status="ready", paired=True, connected=True, lastSynced=now,
             watchOwned=True,
             message=("New changes are waiting to sync" if pending else
-                     "Time, weather, and theme are up to date"),
+                     "Watch sync complete"),
             theme=self.inflight_theme,
         )
         self.save_sync_state()
@@ -2352,6 +2389,7 @@ class WatchDaemon:
         if action == "pair":
             self.pair(int(command.get("passkey", 0)))
         elif action == "sync":
+            self.refresh_effective_context()
             self.force_sync_requested = True
             self.ensure_connection("manual sync")
         elif action == "rescan":

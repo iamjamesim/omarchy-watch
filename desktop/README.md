@@ -53,10 +53,19 @@ sync; recovery can invoke Omarchy's existing limits-only collector. See
 [data freshness](../docs/data-freshness.md) for timestamps, cache files, and
 expiry rules.
 
-The panel's **Up to date** status and sync time describe delivery to the watch.
-They do not confirm a successful weather fetch: failures retain cached data and
-are reported in the service journal. The watch's history marker and tap-for-age
-detail indicate older readings.
+The panel separates **Watch sync** from **Weather**. **Synced** confirms delivery
+to the watch; weather reports fresh or cached conditions, forecast-only data,
+or unavailable data. It shows the reading's age and failed updates, including
+failures that happen while cached data still syncs successfully. Automatic
+retries retain that failure indication until a successful refresh clears it.
+**Sync now** also checks for overdue weather, respecting the retry cooldown.
+Detailed fetch errors remain in the service journal.
+
+The status document exposes `weatherStatus`, `weatherRefreshing`, and
+`weatherFetchFailed` separately from Bluetooth status. `weatherUpdated` is the
+usable reading's source time; `weatherFetched` is the last successful download
+time for the configured location and units. These fields do not change the
+Bluetooth profile or firmware.
 
 ## Codex alerts
 

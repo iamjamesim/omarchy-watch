@@ -24,6 +24,7 @@ Panel {
   })
   property string actionError: ""
   property string autoOpenedCandidate: ""
+  property double nowEpoch: Date.now() / 1000
 
   readonly property string ctlPath: String(setting("ctlPath", "omarchy-watchctl"))
   readonly property string statePath: (Quickshell.env("XDG_STATE_HOME")
@@ -43,6 +44,21 @@ Panel {
   readonly property bool brightnessAvailable: Number(watchState.protocol || 0) >= 3
     && (Number(watchState.capabilities || 0) & 32) !== 0
   readonly property bool soundAvailable: (Number(watchState.capabilities || 0) & 128) !== 0
+  readonly property string weatherState: String(watchState.weatherStatus || "unknown")
+  readonly property bool weatherFailed: Boolean(watchState.weatherFetchFailed)
+  readonly property bool weatherRefreshing: Boolean(watchState.weatherRefreshing)
+  readonly property string weatherLabel: {
+    if (weatherState === "unconfigured") return "SET LOCATION"
+    if (weatherRefreshing) return weatherFailed ? "RETRYING" : "UPDATING"
+    if (weatherFailed) return "UPDATE FAILED"
+    switch (weatherState) {
+    case "fresh": return "FRESH"
+    case "cached": return "CACHED"
+    case "forecast": return "FORECAST ONLY"
+    case "unavailable": return "UNAVAILABLE"
+    default: return "UNKNOWN"
+    }
+  }
   readonly property color foreground: root.bar ? root.bar.foreground : Color.foreground
   readonly property color dim: Qt.darker(foreground, 1.45)
   readonly property string fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
@@ -99,18 +115,43 @@ Panel {
   }
 
   function relativeSync(epoch) {
-    var seconds = Math.max(0, Math.floor(Date.now() / 1000) - Number(epoch || 0))
+    if (!Number(epoch)) return "NEVER"
+    var seconds = Math.max(0, Math.floor(nowEpoch) - Number(epoch))
     if (seconds < 10) return "JUST NOW"
-    if (seconds < 60) return seconds + " SECONDS AGO"
+    if (seconds < 60) return seconds + " SECOND" + (seconds === 1 ? "" : "S") + " AGO"
     var minutes = Math.floor(seconds / 60)
-    if (minutes < 60) return minutes + " MINUTES AGO"
+    if (minutes < 60) return minutes + " MINUTE" + (minutes === 1 ? "" : "S") + " AGO"
     var hours = Math.floor(minutes / 60)
-    return hours + " HOURS AGO"
+    return hours + " HOUR" + (hours === 1 ? "" : "S") + " AGO"
+  }
+
+  function weatherDetail() {
+    if (weatherState === "unknown") return "Weather status unavailable."
+    if (weatherState === "unconfigured") return "Choose a location in the desktop weather panel."
+    var detail
+    if (weatherState === "forecast")
+      detail = "Current conditions unavailable. Today's high/low only; fetched "
+        + relativeSync(watchState.weatherFetched).toLowerCase() + "."
+    else if (weatherState === "fresh" || weatherState === "cached")
+      detail = (weatherFailed || weatherState === "cached" ? "Using cached conditions from " : "Conditions from ")
+        + relativeSync(watchState.weatherUpdated).toLowerCase() + "."
+    else
+      detail = "No usable weather data."
+    if (weatherFailed) detail += " " + (weatherRefreshing ? "Retrying now." : "Retrying automatically.")
+    return detail
   }
 
   onOpenedChanged: if (opened) {
+    nowEpoch = Date.now() / 1000
     stateFile.reload()
     if (status === "found") Qt.callLater(function() { codeField.forceActiveFocus() })
+  }
+
+  Timer {
+    interval: 30000
+    running: root.opened
+    repeat: true
+    onTriggered: root.nowEpoch = Date.now() / 1000
   }
 
   FileView {
@@ -195,7 +236,7 @@ Panel {
               : root.status === "pairing" ? "PAIRING"
               : root.status === "syncing" ? "SYNCHRONIZING"
               : root.status === "ready" && root.pending ? "SYNC PENDING"
-              : root.status === "ready" ? "UP TO DATE"
+              : root.status === "ready" ? "SYNCED"
               : root.status === "bluetooth-off" ? "BLUETOOTH OFF"
               : root.status === "disconnected" ? "DISCONNECTED"
               : root.owned && root.status === "error" ? "DISCONNECTED"
@@ -353,7 +394,7 @@ Panel {
           Layout.fillWidth: true
 
           Text {
-            text: "TIME + WEATHER + THEME"
+            text: "WATCH SYNC"
             color: root.foreground
             font.family: root.fontFamily
             font.pixelSize: Style.font.body
@@ -367,6 +408,36 @@ Panel {
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
           }
+        }
+
+        RowLayout {
+          Layout.fillWidth: true
+
+          Text {
+            text: "WEATHER"
+            color: root.foreground
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.body
+          }
+
+          Item { Layout.fillWidth: true }
+
+          Text {
+            text: root.weatherLabel
+            color: root.weatherFailed ? root.foreground : root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+          }
+        }
+
+        Text {
+          Layout.fillWidth: true
+          textFormat: Text.PlainText
+          text: root.weatherDetail()
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          wrapMode: Text.WordWrap
         }
 
         Button {

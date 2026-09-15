@@ -784,7 +784,7 @@ class RevisionStateTests(unittest.TestCase):
             status="ready", paired=True, connected=True,
             lastSynced=mock.ANY,
             watchOwned=True,
-            message="Time, weather, and theme are up to date",
+            message="Watch sync complete",
             theme="SOLITUDE",
         )
         watch.sync_connected_profile.assert_not_called()
