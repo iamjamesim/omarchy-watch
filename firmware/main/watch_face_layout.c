@@ -178,7 +178,7 @@ void watch_face_layout_create(lv_obj_t *screen,
     // The history glyph is wider than its advance and has a negative bearing.
     lv_obj_set_width(layout->weather_history, 26);
     lv_obj_set_style_pad_left(layout->weather_history, 2, 0);
-    lv_obj_set_pos(layout->weather_history, 154, 312);
+    lv_obj_set_pos(layout->weather_history, 356, 255);
     lv_obj_add_flag(layout->weather_history, LV_OBJ_FLAG_HIDDEN);
     layout->weather_touch = lv_obj_create(screen);
     lv_obj_remove_style_all(layout->weather_touch);
