@@ -10,13 +10,14 @@ _This is an independent community project, not an official Omarchy project._
 ## Key features
 
 <p align="center">
-  <img src="docs/images/omarchy-watch-on-wrist.webp" width="560" alt="Omarchy Watch on a wrist with the pink Omarchy theme">
+  <img src="docs/images/omarchy-watch-on-wrist.webp" width="560" alt="Omarchy Watch on a wrist with a pink theme, Codex allowance rim, and reset countdown">
 </p>
 
 - A watch face designed to match Omarchy's look and feel with JetBrains Mono and Nerd Fonts glyphs.
 - Date, time, and weather from your desktop top bar.
 - Color scheme automatically synced to your current Omarchy theme.
-- Codex activity and completion alerts through an optional, separately installed companion integration.
+- Codex remaining allowance and reset countdown from Omarchy's agents panel, with a colored rim showing how much is left.
+- Codex working, needs-input, and done indicators with alert sounds for needs-input and done, through an optional companion integration.
 
 ## Install
 
@@ -25,6 +26,9 @@ The easiest way to get started is to ask your coding agent to follow the steps b
 Omarchy Watch requires Omarchy 4.0 or newer, Bluetooth LE, and the exact
 Waveshare ESP32-S3-Touch-AMOLED-2.06 board. The board is development hardware,
 not a waterproof consumer watch.
+
+Until the next release, allowance tracking and the new Codex indicators require
+building and installing the desktop bridge and firmware from this checkout.
 
 ### 1. Flash the watch
 
@@ -63,15 +67,21 @@ select **Scan Again**. Pairing is only required once.
 
 ### 4. Optional: enable Codex activity indicators
 
-Codex activity and completion alerts are available through the separate
+Codex activity, needs-input, and completion alerts are available through the separate
 [Omarchy Watch for Codex](https://github.com/iamjamesim/omarchy-watch-codex)
 companion, distributed as a Codex plugin and managed independently through
 Codex. This keeps the base watch installation independent of agent
 configuration and lets users enable or remove Codex support without
 reinstalling Omarchy Watch. The companion is never installed automatically.
 
+Needs-input alerts require companion v0.2.0 or newer and cover blocking questions
+and permission requests. After installing or updating the companion, start a
+new Codex session and review its
+hooks with `/hooks`. Allowance tracking reads Omarchy's agents panel separately
+and does not require the companion plugin.
+
 If an agent is performing this installation, it should explain that the
-companion adds four Codex lifecycle hooks and ask whether the user wants this
+companion adds Codex activity and tool hooks and ask whether the user wants this
 feature. It must not install or configure the companion unless the user gives
 separate, explicit approval. Review the companion's behavior and privacy
 disclosure before opting in; installing Omarchy Watch alone does not constitute
@@ -112,6 +122,7 @@ Bluetooth behavior can vary across Linux hardware and drivers. If something does
 
 - [Firmware](firmware/README.md) — build, flash, power, and boot behavior
 - [Desktop client](desktop/README.md) — requirements, settings, and diagnostics
+- [Data freshness](docs/data-freshness.md) — cached readings, expiry, and recovery
 - [Design](docs/design.md) — watch-face and product decisions
 - [Connectivity](docs/connectivity.md) — secure pairing and Bluetooth protocol
 - [Simulator](simulator/README.md) — deterministic watch-face previews

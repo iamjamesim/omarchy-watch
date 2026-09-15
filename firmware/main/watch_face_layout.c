@@ -1,4 +1,6 @@
 #include "watch_face_layout.h"
+#include "watch_profile.h"
+#include <stdio.h>
 
 #include <string.h>
 
@@ -172,6 +174,19 @@ void watch_face_layout_create(lv_obj_t *screen,
     layout->range = make_label(screen, "H --°  L --°", &jetbrains_mono_22);
     lv_obj_set_pos(layout->range, 194, 328);
 
+    layout->weather_history = make_label(screen, "\uf1da", &jetbrains_mono_22);
+    // The history glyph is wider than its advance and has a negative bearing.
+    lv_obj_set_width(layout->weather_history, 26);
+    lv_obj_set_style_pad_left(layout->weather_history, 2, 0);
+    lv_obj_set_pos(layout->weather_history, 356, 255);
+    lv_obj_add_flag(layout->weather_history, LV_OBJ_FLAG_HIDDEN);
+    layout->weather_touch = lv_obj_create(screen);
+    lv_obj_remove_style_all(layout->weather_touch);
+    lv_obj_set_pos(layout->weather_touch, 28, 245);
+    lv_obj_set_size(layout->weather_touch, 354, 140);
+    lv_obj_add_flag(layout->weather_touch, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(layout->weather_touch, LV_OBJ_FLAG_SCROLLABLE);
+
     // U+F041 is Nerd Fonts' Font Awesome location marker.
     layout->location = make_label(screen, " LOCATION NOT SET", &jetbrains_mono_27);
     lv_obj_set_width(layout->location, 330);
@@ -213,10 +228,12 @@ void watch_face_layout_set_time(watch_face_layout_t *layout,
 void watch_face_layout_set_battery(watch_face_layout_t *layout,
                                    const char *glyph,
                                    bool charging,
+                                   int percent,
                                    const char *percentage,
                                    bool show_percentage)
 {
-    const lv_color_t battery_color = charging ? accent_color : foreground_color;
+    const lv_color_t battery_color = charging || watch_face_resource_low(percent)
+                                        ? accent_color : foreground_color;
     lv_label_set_text(layout->battery, glyph);
     lv_label_set_text(layout->battery_percentage, percentage);
     lv_obj_set_style_text_color(layout->battery, battery_color, 0);
@@ -259,4 +276,116 @@ void watch_face_layout_set_agent(watch_face_layout_t *layout, bool visible)
         lv_obj_add_flag(layout->agent, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(layout->agent_touch, LV_OBJ_FLAG_HIDDEN);
     }
+}
+
+static void agent_bounce(void *object, int32_t y)
+{
+    lv_obj_set_y(object, y);
+}
+
+static void agent_pulse(void *object, int32_t opacity)
+{
+    lv_obj_set_style_text_opa(object, opacity, 0);
+}
+
+static void agent_sway(void *object, int32_t phase)
+{
+    const int32_t wave = lv_trigo_sin(phase);
+    const int32_t rounding = wave < 0 ? -16384 : 16384;
+    lv_obj_set_style_translate_x(object, (wave * 2 + rounding) / 32768, 0);
+    /* LVGL rotation uses tenths of a degree: a relaxed +/-4 degree tilt. */
+    lv_obj_set_style_transform_rotation(object, wave * 40 / 32768, 0);
+}
+
+void watch_face_layout_set_agent_state(watch_face_layout_t *layout,
+                                       watch_agent_state_t state, bool animate)
+{
+    if (layout->agent_state == state && layout->agent_animated == animate) {
+        return;
+    }
+    layout->agent_state = state;
+    layout->agent_animated = animate;
+    lv_obj_t *agent = layout->agent;
+    lv_label_set_text(agent, state == WATCH_AGENT_FINISHED ? "󱜙" : "󱚣");
+    lv_anim_delete(agent, NULL);
+    lv_obj_set_y(agent, 53);
+    lv_obj_set_style_translate_x(agent, 0, 0);
+    lv_obj_set_style_transform_rotation(agent, 0, 0);
+    lv_obj_set_style_text_opa(agent, LV_OPA_COVER, 0);
+    watch_face_layout_set_agent(layout, state != WATCH_AGENT_IDLE);
+    if (!animate || state == WATCH_AGENT_IDLE) {
+        return;
+    }
+
+    lv_anim_t animation;
+    lv_anim_init(&animation);
+    lv_anim_set_var(&animation, agent);
+    lv_anim_set_repeat_count(&animation, LV_ANIM_REPEAT_INFINITE);
+    lv_anim_set_path_cb(&animation, lv_anim_path_ease_in_out);
+    switch (state) {
+    case WATCH_AGENT_WORKING:
+        lv_anim_set_exec_cb(&animation, agent_pulse);
+        lv_anim_set_values(&animation, LV_OPA_COVER, 100);
+        lv_anim_set_duration(&animation, 1300);
+        lv_anim_set_playback_duration(&animation, 1300);
+        break;
+    case WATCH_AGENT_ATTENTION:
+        /* Preserve the original attention bounce exactly. */
+        lv_anim_set_exec_cb(&animation, agent_bounce);
+        lv_anim_set_values(&animation, 53, 47);
+        lv_anim_set_duration(&animation, 320);
+        lv_anim_set_playback_duration(&animation, 320);
+        lv_anim_set_repeat_delay(&animation, 360);
+        break;
+    case WATCH_AGENT_FINISHED:
+        lv_obj_set_style_transform_pivot_x(agent, 19, 0);
+        lv_obj_set_style_transform_pivot_y(agent, 19, 0);
+        lv_anim_set_exec_cb(&animation, agent_sway);
+        lv_anim_set_values(&animation, 0, 360);
+        lv_anim_set_duration(&animation, 4200);
+        lv_anim_set_path_cb(&animation, lv_anim_path_linear);
+        break;
+    default:
+        return;
+    }
+    lv_anim_start(&animation);
+}
+
+void watch_face_format_age(char *text, unsigned size, int64_t updated, int64_t now)
+{
+    if (updated <= 0 || updated > now) {
+        snprintf(text, size, "NOT UPDATED");
+        return;
+    }
+    int64_t age = now - updated;
+    if (age < 60) snprintf(text, size, "UPDATED JUST NOW");
+    else if (age < 3600) snprintf(text, size, "UPDATED %lldm AGO", (long long)(age / 60));
+    else if (age < 86400) snprintf(text, size, "UPDATED %lldh AGO", (long long)(age / 3600));
+    else snprintf(text, size, "UPDATED %lldd AGO", (long long)(age / 86400));
+}
+
+void watch_face_layout_weather_age(watch_face_layout_t *layout, int64_t updated, int64_t now,
+                                   bool current_visible, bool show_age)
+{
+    if (current_visible && omarchy_data_stale(updated, now))
+        lv_obj_remove_flag(layout->weather_history, LV_OBJ_FLAG_HIDDEN);
+    else lv_obj_add_flag(layout->weather_history, LV_OBJ_FLAG_HIDDEN);
+    if (show_age) {
+        char text[40];
+        watch_face_format_age(text, sizeof(text), updated, now);
+        char *space = strchr(text, ' ');
+        if (space) *space = '\n';
+        lv_label_set_text(layout->condition, text);
+    }
+}
+
+void watch_face_layout_weather_snapshot(watch_face_layout_t *layout,
+    const char *icon, const char *temperature, const char *condition, const char *range,
+    const char *location, int64_t updated, int64_t daily_expires, int64_t now, bool show_age)
+{
+    bool current = omarchy_weather_current(updated, now);
+    bool daily = updated > 0 && updated <= now && daily_expires > now;
+    watch_face_layout_set_weather(layout, current ? icon : "", current ? temperature : "--°",
+        current ? condition : "", daily ? range : "H --°  L --°", location);
+    watch_face_layout_weather_age(layout, updated, now, current, show_age);
 }

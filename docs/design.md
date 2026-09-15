@@ -26,14 +26,16 @@ and fatal-error screens are system states rather than face variants.
 - JetBrains Mono throughout
 - compact date and battery rail
 - time is the dominant element
-- two restrained horizontal rules divide time, weather, and location
+- two horizontal rules divide time, weather, and the footer
 - weather uses a two-column composition: icon/temperature and condition/range
-- the centered location footer identifies the forecast's provenance
-- battery level, charging state, weather, and location are live on hardware
-- the clock is the dominant accent focal point; the battery stays neutral until
-  charging, while an active agent uses Omarchy's accent robot in the top rail
+- v4 and later profiles show Codex remaining allowance and reset time in the footer;
+  older profiles show the forecast location
+- battery level, charging state, weather, and allowance are live on hardware
+- the clock is the dominant accent focal point; the battery uses accent while
+  charging or at 20% or less, and an active agent uses an accent robot in the top rail
 - tapping the battery temporarily replaces its glyph with the exact percentage
-- all supporting text and weather content remain foreground-colored
+- weather and reset text use foreground; allowance text uses accent at 20% or less
+- the allowance rim shows remaining capacity in accent over a 40% opacity track
 - no controls, cards, vertical dividers, or decorative chrome
 - no image background; the face model may gain an optional background later
 
@@ -72,13 +74,13 @@ making the default typography unnecessarily small.
   digits, negative and three-digit weather, both hour cycles, and the longest
   supported localized date tokens.
 
-The v0.4 LVGL face uses the preferred English tier. Its input is deliberately
+The LVGL face uses the preferred English tier. Its input is deliberately
 bounded until the fallback tiers are implemented.
 
 ## Preview contract
 
-`firmware/main/watch_face_layout.c` is the visual source of truth. The firmware
-and `simulator/render_watchface.c` compile it with the same generated fonts and
+`firmware/main/watch_face_layout.c` and `watch_allowance_layout.c` are shared by
+the firmware and `simulator/render_watchface.c`, with the same generated fonts and
 LVGL 9.5 dependency. The simulator renders a deterministic 410 x 502 RGB565
 frame, then the preview tool exports square and rounded PNGs.
 
@@ -108,24 +110,35 @@ work.
 
 ## Agent attention
 
-Agent activity has three mutually exclusive states per session: working,
-finished and awaiting attention, or absent. The face aggregates them with
-attention taking priority over work. Working shows Omarchy's exact
-`robot-excited` glyph as a static accent status; every distinct completion plays
-one toggleable speaker chime, wakes the face for five seconds, and bounces the
-glyph whenever the screen is awake. GPIO18 also emits a double pulse for boards
-fitted with an optional motor. This alert still fires when an earlier completion
-remains unacknowledged; retransmission and reconnect do not repeat it.
+Agent activity distinguishes working, needs input, finished, and absent.
+The face prioritizes input requests, then unacknowledged completions, then work.
+The `robot-excited` glyph pulses in opacity while working and bounces for input.
+Finished uses the `robot-happy` glyph with a gentle sway. Idle is hidden.
+Animations run only while the screen is awake, and repeated snapshots do not
+restart them. Input requests use two equal notes; completion uses a descending
+pair. The panel's shared Sound toggle controls both. Fresh alerts wake the face
+for five seconds, except on battery at 15% or less; that cutoff suppresses the
+wake, not the sound or optional GPIO18 haptic pulse.
+An alert still fires when an earlier completion remains unacknowledged;
+retransmission and reconnect do not repeat it.
 The normal display timeout remains independent of semantic attention.
 
-Tapping the robot acknowledges every completed revision currently represented
+Tapping the robot acknowledges every input/completion revision currently represented
 by the aggregate glyph. A new prompt implicitly acknowledges the previous
 result in that session, and interruption or session end removes it. The design
 does not infer acknowledgement from desktop window focus.
 
+## Data freshness
+
+Weather and allowance preserve useful last-known readings. A neutral history
+glyph marks cached values without moving the numbers. Tapping either section
+shows the observation age for three seconds. See
+[data-freshness.md](data-freshness.md) for exact cutoffs and recovery behavior.
+
 ## Evolution constraints
 
-- Old watches must be able to ignore fields introduced by a newer companion.
+- The bridge must send a packet layout supported by the watch; older watches
+  reject unknown layouts rather than ignoring appended fields.
 - A profile update is a full, versioned snapshot rather than a chain of patches.
 - Pending synchronization is derived from desired and acknowledged snapshot
   fingerprints, so restarts and overlapping changes cannot lose work.

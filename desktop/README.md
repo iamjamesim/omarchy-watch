@@ -18,10 +18,8 @@ The desktop side has two parts separated by a small file/command boundary:
 
 The bridge reads the resolved background, foreground, and accent from
 Omarchy's current theme state and reuses Omarchy's canonical weather location.
-It fetches Open-Meteo when that location has coordinates, refreshes every 15
-minutes while awake, and refreshes immediately after resume or network
-recovery. It retains the last successful result for brief offline periods. The
-request includes the configured latitude and longitude; the watch itself never
+It fetches Open-Meteo when that location has coordinates. The request includes
+the configured latitude and longitude; the watch itself never
 joins Wi-Fi or calls a weather service.
 
 Theme and settings changes are event-driven. The daemon watches Omarchy's
@@ -46,6 +44,33 @@ throughout recovery.
 
 The bundled endpoint is Open-Meteo's non-commercial free API. Commercial
 derivatives must use an appropriate Open-Meteo plan or replace the provider.
+
+## Weather and usage recovery
+
+The bridge retains last-successful readings while refreshing overdue sources on
+resume, network recovery, and watch reconnect. Usage-file changes trigger prompt
+sync; recovery can invoke Omarchy's existing limits-only collector. See
+[data freshness](../docs/data-freshness.md) for timestamps, cache files, and
+expiry rules.
+
+The panel's **Up to date** status and sync time describe delivery to the watch.
+They do not confirm a successful weather fetch: failures retain cached data and
+are reported in the service journal. The watch's history marker and tap-for-age
+detail indicate older readings.
+
+## Codex alerts
+
+The panel's **Sound** switch applies to both **needs input** (blocking questions
+and permission requests) and **task completion** (the turn ended). Turning sound
+off keeps activity indicators and the existing visual alert behavior. Working
+activity remains quiet. The stored `completionSound` key and `sound` command
+remain compatible with earlier versions.
+
+Permission requests can trigger an alert even when Codex's automatic reviewer
+resolves them. The companion receives the request before it knows whether human
+input is required; the current hook contract does not expose a reliable signal
+for that distinction. Permission alerts remain enabled to avoid missing genuine
+blocking requests. See the [Codex hook documentation](https://learn.chatgpt.com/docs/hooks#permissionrequest).
 
 ## Install a development checkout
 
@@ -209,7 +234,7 @@ does not rely on a mutable pending flag.
 
 Watch settings live beside the identity in `settings.json`.
 
-Unacknowledged agent completion envelopes live in `agent-activity.json`. This
+Unacknowledged agent input requests and completions live in `agent-activity.json`. This
 file contains no conversation content and is pruned after acknowledgement or a
 24-hour recovery limit.
 

@@ -6,11 +6,13 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
 import socket
 import struct
+import subprocess
 import threading
 import time
 import tomllib
@@ -18,6 +20,7 @@ import unicodedata
 import urllib.parse
 import urllib.request
 import uuid
+from zoneinfo import ZoneInfo
 
 import dbus
 import dbus.mainloop.glib
@@ -43,14 +46,16 @@ ACTIVITY_UUID = "7f510004-1b15-4f0d-b7a5-4cf3a2c98ee1"
 AGENT_PATH = "/io/github/omarchy/watch/agent"
 GATT_APPLICATION_PATH = "/io/github/omarchy/watch/gatt"
 GATT_PROFILE_PATH = f"{GATT_APPLICATION_PATH}/profile0"
-PROTOCOL_VERSION = 3
+PROTOCOL_VERSION = 5
 PAIRING_TIMEOUT_SECONDS = 20
 PAIRING_CLEANUP_MILLISECONDS = 750
 PAIRING_RETRY_DELAY_MILLISECONDS = 5000
 PAIRING_RETRY_DISCOVERY_MILLISECONDS = 10000
 PAIRING_MAX_TRANSPORT_ATTEMPTS = 3
 WEATHER_REFRESH_SECONDS = 15 * 60
-WEATHER_MAX_AGE_SECONDS = 6 * 60 * 60
+WEATHER_MAX_AGE_SECONDS = 6 * 60 * 60  # Legacy profiles
+DATA_FRESH_SECONDS = 30 * 60
+CURRENT_WEATHER_MAX_AGE_SECONDS = 3 * 60 * 60
 DISPLAY_PREVIEW_SECONDS = 30
 CONTEXT_RECONCILE_SECONDS = 60
 CONTEXT_DEBOUNCE_MILLISECONDS = 200
@@ -71,9 +76,11 @@ AGENT_LEDGER_MAX_AGE_SECONDS = 24 * 60 * 60
 ACTIVITY_NONE = 0
 ACTIVITY_WORKING = 1
 ACTIVITY_ATTENTION = 2
+ACTIVITY_FINISHED = 3
 ACTIVITY_ALERT = 1 << 0
 ACTIVITY_SOUND = 1 << 1
 CAP_COMPLETION_SOUND = 1 << 7
+CAP_ACTIVITY_FINISHED = 1 << 8
 
 
 def parse_hex_color(value: object, fallback: bytes) -> bytes:
@@ -193,6 +200,7 @@ def fetch_weather(opener=urllib.request.urlopen) -> dict:
         "forecast_days": 1,
         "temperature_unit": "fahrenheit" if imperial else "celsius",
         "timezone": "auto",
+        "timeformat": "unixtime",
     })
     request = urllib.request.Request(
         f"https://api.open-meteo.com/v1/forecast?{query}",
@@ -202,9 +210,19 @@ def fetch_weather(opener=urllib.request.urlopen) -> dict:
         report = json.loads(response.read())
     current = report["current"]
     daily = report["daily"]
+    observed = int(current["time"])
+    if not 1704067200 <= observed <= int(time.time()):
+        raise ValueError("Weather observation timestamp is invalid")
+    zone = ZoneInfo(report["timezone"])
+    forecast_day = dt.datetime.fromtimestamp(int(daily["time"][0]), zone).date()
+    day_end = int(dt.datetime.combine(forecast_day + dt.timedelta(days=1),
+                                      dt.time(), tzinfo=zone).timestamp())
     return {
         "valid": True,
-        "updatedAt": int(time.time()),
+        "updatedAt": observed,
+        "fetchedAt": int(time.time()),
+        "dailyExpiresAt": day_end,
+        "context": [location["latitude"], location["longitude"], imperial],
         "temperature": round(float(current["temperature_2m"])),
         "high": round(float(daily["temperature_2m_max"][0])),
         "low": round(float(daily["temperature_2m_min"][0])),
@@ -213,6 +231,64 @@ def fetch_weather(opener=urllib.request.urlopen) -> dict:
         "fahrenheit": imperial,
         "location": location["name"],
     }
+
+
+def read_codex_allowance(path: Path, epoch: int, *, allow_stale: bool = False) -> dict:
+    """Read Omarchy's versioned output, never credentials or transcripts.
+
+    Unknown data is distinct from empty allowance. Reject any unsupported
+    window rather than silently presenting one window as overall availability.
+    """
+    unavailable = {"remaining": 255, "window": 0, "updatedAt": 0, "resetsAt": 0}
+    try:
+        with path.open() as source:
+            raw = source.read(262145)
+        if len(raw) > 262144:
+            raise ValueError("record too large")
+        record = json.loads(raw)
+        if (not isinstance(record, dict) or type(record.get("schemaVersion")) is not int or
+                record["schemaVersion"] != 1 or record.get("id") != "codex" or
+                record.get("usageStatusText") or record.get("retryAdvised")):
+            raise ValueError("unsupported record or provider error")
+        def timestamp(value):
+            if not isinstance(value, str):
+                raise ValueError("missing timestamp")
+            parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+            if parsed.utcoffset() is None:
+                raise ValueError("timestamp lacks timezone")
+            result = int(parsed.timestamp())
+            if not 1704067200 <= result <= 3155759999:
+                raise ValueError("timestamp outside watch range")
+            return result
+        updated = timestamp(record.get("updatedAt"))
+        if updated > epoch or (not allow_stale and epoch - updated > DATA_FRESH_SECONDS):
+            raise ValueError("stale or future-dated record")
+        windows = record.get("limits")
+        if not isinstance(windows, list) or not windows:
+            raise ValueError("no allowance windows")
+        candidates = []
+        for item in windows:
+            if not isinstance(item, dict):
+                raise ValueError("invalid window")
+            used = item.get("percent")
+            if type(used) not in (int, float) or not math.isfinite(used) or not 0 <= used <= 1:
+                raise ValueError("invalid used fraction")
+            label = item.get("label")
+            if label == "Weekly (7-day)":
+                window = 1
+            elif isinstance(label, str) and re.fullmatch(r"[1-9][0-9]*[hm] window", label):
+                window = 2
+            else:
+                raise ValueError("unsupported allowance window")
+            reset = timestamp(item.get("resetsAt"))
+            if reset <= updated or (not allow_stale and reset <= epoch):
+                raise ValueError("window reset; waiting for fresh limits")
+            candidates.append((used, window, reset))
+        used, window, reset = max(candidates, key=lambda item: item[0])
+        return {"remaining": int(math.floor(100 * (1 - used) + 0.5)),
+                "window": window, "updatedAt": updated, "resetsAt": reset}
+    except (OSError, ValueError, TypeError, OverflowError, RecursionError) as error:
+        return {**unavailable, "reason": str(error)}
 
 
 class AgentActivityLedger:
@@ -249,6 +325,7 @@ class AgentActivityLedger:
                     "session": session,
                     "turn": turn,
                     "state": "attention",
+                    "needsInput": bool(record.get("needsInput", False)),
                     "revision": revision,
                     "completedAt": completed_at,
                     "delivered": bool(record.get("delivered")),
@@ -292,19 +369,23 @@ class AgentActivityLedger:
         return True
 
     def completed(self, source: str, session: str, turn: str,
-                  completed_at: int | None = None) -> bool:
+                  completed_at: int | None = None, *, needs_input: bool = False) -> bool:
         key = self.key(source, session)
         previous = self.sessions.get(key)
-        if previous and previous["state"] == "attention" and previous["turn"] == turn:
+        if (previous and previous["state"] == "attention" and
+                previous["turn"] == turn and
+                previous.get("needsInput", False) == needs_input):
             return False
-        if previous and previous["state"] == "working" and previous["turn"] != turn:
-            # A delayed completion from an older turn must not replace newer work.
+        if (previous and previous["turn"] != turn and
+                (previous["state"] == "working" or previous.get("needsInput", False))):
+            # A delayed event must not replace a running or blocked newer turn.
             return False
         self.sessions[key] = {
             "source": source,
             "session": session,
             "turn": turn,
             "state": "attention",
+            "needsInput": needs_input,
             "revision": self.next_revision(),
             "completedAt": int(time.time()) if completed_at is None else completed_at,
             # Every distinct completion gets one alert. Successful delivery is
@@ -360,7 +441,9 @@ class AgentActivityLedger:
                 0 <= now - record["completedAt"] <= AGENT_ALERT_FRESH_SECONDS
                 for record in attention
             )
-            return ACTIVITY_ATTENTION, self.revision, fresh_undelivered
+            state = (ACTIVITY_ATTENTION if any(record.get("needsInput", False)
+                     for record in attention) else ACTIVITY_FINISHED)
+            return state, self.revision, fresh_undelivered
         if any(record["state"] == "working" for record in self.sessions.values()):
             return ACTIVITY_WORKING, self.revision, False
         return ACTIVITY_NONE, self.revision, False
@@ -542,6 +625,9 @@ class WatchDaemon:
         self.context_refresh_inflight = False
         self.context_refresh_source = 0
         self.context_monitors = []
+        self.usage_monitor_root = None
+        self.usage_refresh_inflight = False
+        self.usage_refresh_attempt = 0.0
         self.network_monitor = None
         self.watch_protocol = 1
         self.preview_until = 0.0
@@ -564,6 +650,9 @@ class WatchDaemon:
         self.activity_ledger_path = self.state_dir / "agent-activity.json"
         self.cache_dir = xdg_path("XDG_CACHE_HOME", ".cache") / "omarchy-watch"
         self.weather_cache_path = self.cache_dir / "weather.json"
+        self.allowance_path = xdg_path("XDG_STATE_HOME", ".local/state") / "omarchy/agents/usage/codex.json"
+        self.allowance_cache_path = self.cache_dir / "allowance.json"
+        self.last_allowance = {}
         self.theme_path = Path.home() / ".local/state/omarchy/current/theme/colors.toml"
         self.theme_shell_path = self.theme_path.with_name("shell.toml")
         self.weather_location_path = Path.home() / ".local/state/omarchy/settings/weather.json"
@@ -631,7 +720,17 @@ class WatchDaemon:
     def load_cached_weather(self) -> dict:
         try:
             document = json.loads(self.weather_cache_path.read_text())
-            if not document.get("valid"):
+            if not isinstance(document, dict) or not document.get("valid"):
+                return {}
+            for key in ("updatedAt", "temperature", "high", "low", "code"):
+                if type(document.get(key)) is not int:
+                    return {}
+            for key in ("fetchedAt", "dailyExpiresAt"):
+                if key in document and type(document[key]) is not int:
+                    return {}
+            if not 1704067200 <= document["updatedAt"] <= 3155759999:
+                return {}
+            if "dailyExpiresAt" in document and not 1704067200 <= document["dailyExpiresAt"] <= 3155759999:
                 return {}
             return document
         except (FileNotFoundError, OSError, TypeError, json.JSONDecodeError):
@@ -688,6 +787,16 @@ class WatchDaemon:
         weather = self.weather
         weather_age = now - int(weather.get("updatedAt", 0) or 0)
         valid = bool(weather.get("valid")) and 0 <= weather_age <= WEATHER_MAX_AGE_SECONDS
+        if "context" in weather:
+            location = weather_location()
+            valid = valid and weather["context"] == [location.get("latitude"), location.get("longitude"), weather_unit_override()]
+        if getattr(self, "watch_protocol", 1) >= 5:
+            location = weather_location()
+            context = [location.get("latitude"), location.get("longitude"), weather_unit_override()]
+            valid = (bool(weather.get("valid")) and weather_age >= 0 and
+                     weather.get("context") == context and
+                     (weather_age <= CURRENT_WEATHER_MAX_AGE_SECONDS or
+                      weather.get("dailyExpiresAt", 0) > now))
         if not valid:
             return {"valid": False}
         return {
@@ -700,9 +809,119 @@ class WatchDaemon:
             "night": bool(weather.get("night")),
             "fahrenheit": bool(weather.get("fahrenheit")),
             "location": ascii_label(weather.get("location", "")),
+            **({"dailyExpiresAt": int(weather.get("dailyExpiresAt", 0))}
+               if getattr(self, "watch_protocol", 1) >= 5 else {}),
         }
 
-    def profile_fingerprint(self) -> str:
+    def cached_allowance(self, epoch: int) -> dict:
+        path = getattr(self, "allowance_path", xdg_path("XDG_STATE_HOME", ".local/state") / "omarchy/agents/usage/codex.json")
+        value = read_codex_allowance(path, epoch, allow_stale=True)
+        if value["remaining"] != 255:
+            if value != getattr(self, "last_allowance", {}):
+                self.last_allowance = dict(value)
+                cache = getattr(self, "allowance_cache_path", None)
+                if cache:
+                    try:
+                        cache.parent.mkdir(parents=True, exist_ok=True)
+                        temporary = cache.with_suffix(".tmp")
+                        temporary.write_text(json.dumps(value) + "\n")
+                        temporary.replace(cache)
+                    except OSError as error:
+                        self.log(f"Could not persist allowance cache: {error}")
+            return value
+        previous = getattr(self, "last_allowance", {})
+        if not previous and getattr(self, "allowance_cache_path", None):
+            try:
+                previous = json.loads(self.allowance_cache_path.read_text())
+            except (OSError, ValueError):
+                previous = {}
+        # A removed record is an explicit loss of source, not a failed refresh.
+        if not path.exists():
+            previous = {}
+            cache = getattr(self, "allowance_cache_path", None)
+            if cache:
+                try:
+                    cache.unlink(missing_ok=True)
+                except OSError as error:
+                    self.log(f"Could not remove allowance cache: {error}")
+        if (isinstance(previous, dict) and type(previous.get("remaining")) is int and
+                0 <= previous["remaining"] <= 100 and previous.get("window") in (1, 2) and
+                type(previous.get("updatedAt")) is int and type(previous.get("resetsAt")) is int and
+                1704067200 <= previous["updatedAt"] <= epoch and
+                previous["updatedAt"] < previous["resetsAt"] <= 3155759999):
+            self.last_allowance = previous
+            return dict(previous)
+        self.last_allowance = {}
+        return value
+
+    def usage_collection_enabled(self) -> bool:
+        # Respect the agents panel's provider opt-out when requesting recovery.
+        path = getattr(self, "shell_config_path", None)
+        if not path:
+            return False
+        try:
+            layout = json.loads(path.read_text())["bar"]["layout"]
+            for widgets in layout.values():
+                for widget in widgets:
+                    if widget.get("id") == "omarchy.agents":
+                        return widget.get("providers", {}).get("codex", {}).get("enabled") is not False
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            pass
+        return False
+
+    def refresh_usage_if_due(self) -> None:
+        if not hasattr(self, "allowance_path") or not self.usage_collection_enabled():
+            return
+        value = self.cached_allowance(int(time.time()))
+        now = time.time()
+        if value["remaining"] != 255 and now - value["updatedAt"] < WEATHER_REFRESH_SECONDS and value["resetsAt"] > now:
+            return
+        if self.usage_refresh_inflight or time.monotonic() - self.usage_refresh_attempt < 60:
+            return
+        self.usage_refresh_attempt = time.monotonic()
+        self.usage_refresh_inflight = True
+        def collect():
+            try:
+                subprocess.run(["omarchy-agent-usage-update", "--limits-only", "codex"],
+                               stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL, timeout=60, check=True)
+            except (OSError, subprocess.SubprocessError) as error:
+                self.log(f"Usage refresh kept cached data: {error}")
+            finally:
+                GLib.idle_add(self.usage_refresh_finished)
+        threading.Thread(target=collect, name="watch-usage", daemon=True).start()
+
+    def usage_refresh_finished(self) -> bool:
+        self.usage_refresh_inflight = False
+        self.refresh_desired_profile()
+        return False
+
+    def ensure_usage_monitor(self) -> None:
+        if not hasattr(self, "allowance_path"):
+            return
+        root = self.allowance_path.parent
+        while not root.is_dir() and root != root.parent:
+            root = root.parent
+        if root == self.usage_monitor_root:
+            return
+        if getattr(self, "usage_monitor", None):
+            self.usage_monitor.cancel()
+        try:
+            self.usage_monitor = Gio.File.new_for_path(str(root)).monitor_directory(Gio.FileMonitorFlags.WATCH_MOVES, None)
+            self.usage_monitor.connect("changed", self.on_usage_changed)
+            self.usage_monitor_root = root
+        except GLib.Error as error:
+            self.usage_monitor_root = None
+            self.log(f"Usage file watcher unavailable; using periodic reconciliation: {error}")
+
+    def on_usage_changed(self, monitor, file, other_file, event_type) -> None:
+        del monitor, event_type
+        paths = [Path(f.get_path()) for f in (file, other_file) if f and f.get_path()]
+        if self.allowance_path in paths or any(p in self.allowance_path.parents for p in paths):
+            self.ensure_usage_monitor()
+            self.schedule_context_check()
+
+    def profile_fingerprint(self, epoch: int | None = None) -> str:
         now = dt.datetime.now().astimezone()
         offset = int((now.utcoffset() or dt.timedelta()).total_seconds() // 60)
         background, foreground, accent = self.palette
@@ -717,6 +936,17 @@ class WatchDaemon:
             "brightness": self.brightness,
             "weather": self.effective_weather(),
         }
+        if self.watch_protocol >= 4:
+            path = xdg_path("XDG_STATE_HOME", ".local/state") / "omarchy/agents/usage/codex.json"
+            allowance_epoch = int(now.timestamp()) if epoch is None else epoch
+            allowance = (self.cached_allowance(allowance_epoch) if self.watch_protocol >= 5
+                         else read_codex_allowance(path, allowance_epoch))
+            reason = allowance.pop("reason", "")
+            if reason != getattr(self, "allowance_error", ""):
+                self.log(f"Allowance unavailable: {reason}" if reason else "Allowance available")
+                self.allowance_error = reason
+            self.allowance = allowance
+            document["allowance"] = allowance
         encoded = json.dumps(document, sort_keys=True, separators=(",", ":")).encode()
         return hashlib.sha256(encoded).hexdigest()
 
@@ -818,6 +1048,12 @@ class WatchDaemon:
                 signature.append(b"")
         return tuple(signature)
 
+    def weather_refresh_due(self) -> bool:
+        location = weather_location()
+        context = [location.get("latitude"), location.get("longitude"), weather_unit_override()]
+        return (self.weather.get("context") != context or
+                not 0 <= time.time() - self.weather.get("fetchedAt", 0) < WEATHER_REFRESH_SECONDS)
+
     def refresh_effective_context(self, refresh_weather: bool = True) -> None:
         palette = theme_palette(self.theme_path, self.theme_shell_path)
         if palette != self.palette:
@@ -825,6 +1061,15 @@ class WatchDaemon:
             self.context_changed(preview=True)
         if not refresh_weather or self.context_refresh_inflight:
             return
+        if not self.weather_refresh_due():
+            return
+        location = weather_location()
+        request_context = [location.get("latitude"), location.get("longitude"), weather_unit_override()]
+        if (request_context == getattr(self, "weather_refresh_context", None) and
+                time.monotonic() - getattr(self, "weather_refresh_attempt", 0) < 60):
+            return
+        self.weather_refresh_context = request_context
+        self.weather_refresh_attempt = time.monotonic()
         self.context_refresh_inflight = True
         threading.Thread(
             target=self.fetch_weather_context,
@@ -835,16 +1080,24 @@ class WatchDaemon:
     def fetch_weather_context(self) -> None:
         try:
             weather = fetch_weather()
-            self.cache_weather(weather)
             GLib.idle_add(self.weather_context_ready, weather, "")
         except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
             GLib.idle_add(self.weather_context_ready, None, str(error))
 
     def weather_context_ready(self, weather: dict | None, error: str) -> bool:
         self.context_refresh_inflight = False
+        if weather and "context" in weather:
+            location = weather_location()
+            if weather["context"] != [location.get("latitude"), location.get("longitude"), weather_unit_override()]:
+                self.refresh_effective_context()
+                return False
         if weather:
             changed = weather != self.weather
             self.weather = weather
+            try:
+                self.cache_weather(weather)
+            except OSError as error:
+                self.log(f"Could not persist weather cache: {error}")
             self.write_state(
                 weatherLocation=weather.get("location", ""),
                 weatherUpdated=weather.get("updatedAt", 0),
@@ -860,6 +1113,7 @@ class WatchDaemon:
         self.refresh_desired_profile(preview)
 
     def check_context_files(self) -> bool:
+        self.ensure_usage_monitor()
         signature = self.file_signature(
             self.theme_path, self.theme_shell_path, self.theme_name_path,
             self.weather_location_path, self.shell_config_path,
@@ -868,16 +1122,17 @@ class WatchDaemon:
             previous_signature = self.context_signature
             self.context_signature = signature
             shell_changed = bool(previous_signature) and signature[4] != previous_signature[4]
-            weather_context_changed = bool(previous_signature) and (
-                signature[3] != previous_signature[3] or shell_changed
-            )
             if shell_changed:
                 self.context_changed()
-            self.refresh_effective_context(refresh_weather=weather_context_changed)
+            self.refresh_effective_context()
             self.refresh_desired_profile()
             if not self.sync_pending():
                 self.write_state(theme=self.current_theme_name())
         else:
+            # Check the fetch deadline on the existing minute reconciliation.
+            # A fixed 15-minute timer can miss it by a fetch's duration and then
+            # wait another full interval before trying again.
+            self.refresh_effective_context()
             self.refresh_desired_profile()
         return True
 
@@ -928,15 +1183,13 @@ class WatchDaemon:
             self.ensure_gatt_profile_registered()
             self.schedule_context_check()
             self.refresh_effective_context()
+            self.refresh_usage_if_due()
 
     def on_network_changed(self, monitor, available: bool) -> None:
         del monitor
         if available:
             self.refresh_effective_context()
-
-    def periodic_weather_refresh(self) -> bool:
-        self.refresh_effective_context()
-        return True
+            self.refresh_usage_if_due()
 
     def write_state(self, **changes) -> None:
         self.state.update(changes)
@@ -1292,6 +1545,10 @@ class WatchDaemon:
             if not connection_change:
                 return
             self.refresh_devices()
+            if device_changes.get("ServicesResolved"):
+                self.refresh_usage_if_due()
+                if time.time() - self.weather.get("fetchedAt", 0) >= WEATHER_REFRESH_SECONDS:
+                    self.refresh_effective_context()
 
     def on_bluez_owner_changed(self, name, old_owner, new_owner) -> None:
         if not new_owner:
@@ -1754,7 +2011,7 @@ class WatchDaemon:
         now = dt.datetime.now().astimezone()
         offset = int((now.utcoffset() or dt.timedelta()).total_seconds() // 60)
         epoch = int(now.timestamp())
-        self.desired_fingerprint = self.profile_fingerprint()
+        self.desired_fingerprint = self.profile_fingerprint(epoch)
         self.inflight_fingerprint = self.desired_fingerprint
         self.inflight_theme = self.current_theme_name()
         self.inflight_was_forced = self.force_sync_requested
@@ -1801,10 +2058,17 @@ class WatchDaemon:
                 "<2sBBIqhBB16s3s3sqhhhB24s",
                 *values,
             )
-        return struct.pack(
+        payload = struct.pack(
             "<2sBBIqhBB16s3s3sqhhhB24s3sB",
             *values, accent, self.brightness,
         )
+        if self.watch_protocol >= 4:
+            value = self.allowance
+            payload += struct.pack("<BBqq", value["remaining"], value["window"],
+                                   value["updatedAt"], value["resetsAt"])
+        if self.watch_protocol >= 5:
+            payload += struct.pack("<q", int(weather.get("dailyExpiresAt", 0)) if weather_valid else 0)
+        return payload
 
     @staticmethod
     def desktop_hour_cycle() -> int:
@@ -1935,7 +2199,7 @@ class WatchDaemon:
         magic, version, state, flags, _, revision, acknowledged = struct.unpack(
             "<2sBBBBII", value
         )
-        if magic != b"OA" or version != 1 or state > ACTIVITY_ATTENTION:
+        if magic != b"OA" or version != 1 or state > ACTIVITY_FINISHED:
             return None
         return revision, acknowledged, flags
 
@@ -1952,6 +2216,9 @@ class WatchDaemon:
 
     def activity_payload(self) -> bytes:
         state, revision, alert = self.agent_activity.aggregate()
+        if (state == ACTIVITY_FINISHED and
+                not int(self.state.get("capabilities", 0) or 0) & CAP_ACTIVITY_FINISHED):
+            state = ACTIVITY_ATTENTION
         flags = ACTIVITY_ALERT if alert else 0
         if (alert and self.completion_sound and
                 int(self.state.get("capabilities", 0) or 0) & CAP_COMPLETION_SOUND):
@@ -2048,7 +2315,7 @@ class WatchDaemon:
         turn = self.valid_agent_identifier(command.get("turn"))
         event = str(command.get("event", ""))
         if not source or not session or event not in {
-            "working", "completed", "interrupted", "ended",
+            "working", "completed", "needs-input", "interrupted", "ended",
         }:
             self.log("Ignored invalid agent activity event")
             return
@@ -2058,6 +2325,12 @@ class WatchDaemon:
             if not turn:
                 return
             if self.agent_activity.working(source, session, turn):
+                self.agent_activity_changed()
+            return
+        if event == "needs-input":
+            if not turn:
+                return
+            if self.agent_activity.completed(source, session, turn, needs_input=True):
                 self.agent_activity_changed()
             return
         if event == "completed":
@@ -2155,6 +2428,8 @@ class WatchDaemon:
         )
         threading.Thread(target=self.socket_server, name="watch-control", daemon=True).start()
         self.start_context_monitors()
+        self.ensure_usage_monitor()
+        self.refresh_usage_if_due()
         self.network_monitor = Gio.NetworkMonitor.get_default()
         self.network_monitor.connect("network-changed", self.on_network_changed)
         self.start_discovery()
@@ -2164,7 +2439,6 @@ class WatchDaemon:
         )
         self.refresh_effective_context()
         GLib.timeout_add_seconds(CONTEXT_RECONCILE_SECONDS, self.check_context_files)
-        GLib.timeout_add_seconds(WEATHER_REFRESH_SECONDS, self.periodic_weather_refresh)
         GLib.MainLoop().run()
 
 
