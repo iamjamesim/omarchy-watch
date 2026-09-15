@@ -786,6 +786,7 @@ class RevisionStateTests(unittest.TestCase):
             watchOwned=True,
             message="Watch sync complete",
             theme="SOLITUDE",
+            syncedWeather={},
         )
         watch.sync_connected_profile.assert_not_called()
 

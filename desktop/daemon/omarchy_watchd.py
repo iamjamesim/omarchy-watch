@@ -53,6 +53,7 @@ PAIRING_RETRY_DELAY_MILLISECONDS = 5000
 PAIRING_RETRY_DISCOVERY_MILLISECONDS = 10000
 PAIRING_MAX_TRANSPORT_ATTEMPTS = 3
 WEATHER_REFRESH_SECONDS = 15 * 60
+WEATHER_RETRY_MIN_SECONDS = 60
 WEATHER_MAX_AGE_SECONDS = 6 * 60 * 60  # Legacy profiles
 DATA_FRESH_SECONDS = 30 * 60
 CURRENT_WEATHER_MAX_AGE_SECONDS = 3 * 60 * 60
@@ -624,6 +625,9 @@ class WatchDaemon:
         self.recovery_inflight = False
         self.context_refresh_inflight = False
         self.weather_fetch_failed = False
+        self.weather_failures = 0
+        self.weather_retry_at = 0
+        self.weather_manual_retry_at = 0
         self.context_refresh_source = 0
         self.context_monitors = []
         self.usage_monitor_root = None
@@ -636,6 +640,7 @@ class WatchDaemon:
         self.force_sync_requested = False
         self.inflight_fingerprint = ""
         self.inflight_theme = ""
+        self.inflight_weather = {}
         self.inflight_was_forced = False
         self.agent = PairingAgent(self)
         self.gatt_application = WatchGattApplication(self)
@@ -679,6 +684,7 @@ class WatchDaemon:
             "paired": False,
             "connected": False,
             "lastSynced": int(sync_state.get("lastSynced", 0) or 0),
+            "syncedWeather": sync_state.get("syncedWeather", {}),
             "message": "Starting Bluetooth bridge",
             "theme": str(sync_state.get("theme", "")) or self.current_theme_name(),
             "weatherLocation": self.weather.get("location", ""),
@@ -771,6 +777,7 @@ class WatchDaemon:
             "schema": 1,
             "syncedRevision": self.synced_fingerprint,
             "lastSynced": int(self.state.get("lastSynced", 0) or 0),
+            "syncedWeather": self.state.get("syncedWeather", {}),
             "profileRevision": self.last_profile_revision,
             "theme": self.state.get("theme", ""),
             "deviceId": self.state.get("deviceId", ""),
@@ -839,6 +846,8 @@ class WatchDaemon:
             "weatherFetchFailed": same_request and getattr(self, "weather_fetch_failed", False),
             "weatherUpdated": updated,
             "weatherFetched": self.weather.get("fetchedAt", 0) if same_cache else 0,
+            "weatherRetryAt": getattr(self, "weather_retry_at", 0) if same_request else 0,
+            "weatherManualRetryAt": getattr(self, "weather_manual_retry_at", 0),
         }
 
     def cached_allowance(self, epoch: int) -> dict:
@@ -1084,24 +1093,37 @@ class WatchDaemon:
         return (self.weather.get("context") != context or
                 not 0 <= time.time() - self.weather.get("fetchedAt", 0) < WEATHER_REFRESH_SECONDS)
 
-    def refresh_effective_context(self, refresh_weather: bool = True) -> None:
+    def refresh_effective_context(self, refresh_weather: bool = True, *, retry_weather: bool = False) -> None:
         palette = theme_palette(self.theme_path, self.theme_shell_path)
         if palette != self.palette:
             self.palette = palette
             self.context_changed(preview=True)
         if not refresh_weather or self.context_refresh_inflight:
             return
-        if not self.weather_refresh_due():
-            return
         location = weather_location()
-        request_context = [location.get("latitude"), location.get("longitude"), weather_unit_override()]
-        if (request_context == getattr(self, "weather_refresh_context", None) and
-                time.monotonic() - getattr(self, "weather_refresh_attempt", 0) < 60):
+        if not location:
             return
-        if request_context != getattr(self, "weather_refresh_context", None):
+        request_context = [location.get("latitude"), location.get("longitude"), weather_unit_override()]
+        same_request = request_context == getattr(self, "weather_refresh_context", None)
+        failed = same_request and getattr(self, "weather_fetch_failed", False)
+        if retry_weather and not failed:
+            return
+        if not failed and not self.weather_refresh_due():
+            return
+        # One global cooldown also covers rapid location/units changes and manual retries.
+        now = time.monotonic()
+        attempt = getattr(self, "weather_refresh_attempt", None)
+        if attempt is not None and now - attempt < WEATHER_RETRY_MIN_SECONDS:
+            return
+        if same_request and not retry_weather and time.time() < getattr(self, "weather_retry_at", 0):
+            return
+        if not same_request:
             self.weather_fetch_failed = False
+            self.weather_failures = 0
+        self.weather_retry_at = 0
         self.weather_refresh_context = request_context
-        self.weather_refresh_attempt = time.monotonic()
+        self.weather_refresh_attempt = now
+        self.weather_manual_retry_at = int(time.time()) + WEATHER_RETRY_MIN_SECONDS
         self.context_refresh_inflight = True
         self.write_state()
         threading.Thread(
@@ -1122,12 +1144,15 @@ class WatchDaemon:
         if weather and "context" in weather:
             location = weather_location()
             if weather["context"] != [location.get("latitude"), location.get("longitude"), weather_unit_override()]:
+                self.write_state()
                 self.refresh_effective_context()
                 return False
         if weather:
             changed = weather != self.weather
             self.weather = weather
             self.weather_fetch_failed = False
+            self.weather_failures = 0
+            self.weather_retry_at = 0
             try:
                 self.cache_weather(weather)
             except OSError as error:
@@ -1140,7 +1165,10 @@ class WatchDaemon:
                 self.context_changed()
         elif error:
             self.weather_fetch_failed = True
-            self.log(f"Weather refresh kept cached data: {error}")
+            self.weather_failures = min(getattr(self, "weather_failures", 0) + 1, 5)
+            delay = min(WEATHER_RETRY_MIN_SECONDS * 2 ** (self.weather_failures - 1), WEATHER_REFRESH_SECONDS)
+            self.weather_retry_at = int(time.time()) + delay
+            self.log(f"Weather refresh kept cached data; retry in {delay}s: {error}")
             self.write_state()
             self.refresh_desired_profile()
         return False
@@ -1997,6 +2025,7 @@ class WatchDaemon:
         if self.synced_fingerprint and previous_device_id != resolved_device_id:
             self.synced_fingerprint = ""
             self.state["lastSynced"] = 0
+            self.state["syncedWeather"] = {}
         watch_owned = bool(owned & 1)
         self.write_state(
             deviceId=resolved_device_id,
@@ -2056,6 +2085,8 @@ class WatchDaemon:
         revision = max(epoch & 0xFFFFFFFF, self.last_profile_revision + 1)
         self.last_profile_revision = revision
         cycle = self.desktop_hour_cycle()
+        # Capture the sent weather before another fetch can change the cache.
+        self.inflight_weather = {"valid": False}
         if self.watch_protocol < 2:
             return struct.pack(
                 "<2sBBIqhBB16s",
@@ -2065,6 +2096,7 @@ class WatchDaemon:
         background, foreground, accent = self.palette
         weather = self.effective_weather(epoch)
         weather_valid = weather.get("valid", False)
+        self.inflight_weather = weather
         flags = 0
         if weather_valid:
             flags |= 1
@@ -2141,6 +2173,7 @@ class WatchDaemon:
             message=("New changes are waiting to sync" if pending else
                      "Watch sync complete"),
             theme=self.inflight_theme,
+            syncedWeather=getattr(self, "inflight_weather", {}),
         )
         self.save_sync_state()
         self.inflight_fingerprint = ""
@@ -2389,9 +2422,10 @@ class WatchDaemon:
         if action == "pair":
             self.pair(int(command.get("passkey", 0)))
         elif action == "sync":
-            self.refresh_effective_context()
             self.force_sync_requested = True
             self.ensure_connection("manual sync")
+        elif action == "weather-retry":
+            self.refresh_effective_context(retry_weather=True)
         elif action == "rescan":
             self.schedule_discovery_restart()
         elif action == "brightness":

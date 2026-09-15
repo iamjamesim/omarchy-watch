@@ -53,19 +53,25 @@ sync; recovery can invoke Omarchy's existing limits-only collector. See
 [data freshness](../docs/data-freshness.md) for timestamps, cache files, and
 expiry rules.
 
-The panel separates **Watch sync** from **Weather**. **Synced** confirms delivery
-to the watch; weather reports fresh or cached conditions, forecast-only data,
-or unavailable data. It shows the reading's age and failed updates, including
-failures that happen while cached data still syncs successfully. Automatic
-retries retain that failure indication until a successful refresh clears it.
-**Sync now** also checks for overdue weather, respecting the retry cooldown.
-Detailed fetch errors remain in the service journal.
+The panel separates **Watch sync** (last successful delivery and pending changes)
+from **Weather** (available desktop readings and fetch failures). **Sync now**
+sends available data; it does not refresh the provider or clear a fetch
+failure. A delivery without weather is flagged. Both statuses remain visible
+while the watch is disconnected.
 
-The status document exposes `weatherStatus`, `weatherRefreshing`, and
-`weatherFetchFailed` separately from Bluetooth status. `weatherUpdated` is the
-usable reading's source time; `weatherFetched` is the last successful download
-time for the configured location and units. These fields do not change the
-Bluetooth profile or firmware.
+Weather is fetched about every 15 minutes. Failed requests automatically retry
+after 1, 2, 4, 8, then 15 minutes, retaining usable cached data. **Retry** appears
+only after failure and can skip the longer backoff. All triggers
+share one in-flight request and a one-minute minimum between attempts, including
+location changes and manual retries. A successful fetch resumes the normal
+cadence; changed data syncs automatically when the watch is connected.
+
+The status document separates the reading's source time (`weatherUpdated`) and
+last successful download (`weatherFetched`) from the last successful delivery
+(`lastSynced`, `syncedWeather`). The delivery record captures the weather before
+the write, so a concurrent fetch cannot mislabel what the watch received.
+Detailed fetch errors remain in the service journal. These additions do not
+change the Bluetooth protocol.
 
 ## Codex alerts
 
@@ -221,8 +227,9 @@ Review the output before posting it and redact Bluetooth addresses or device
 IDs if desired.
 
 The command also accepts `pair <six-digit-code>`, `brightness <20-100>`,
-`sync`, and `rescan`. Brightness defaults to 50%; changing it or the resolved
-theme requests a five-second watch preview when the battery is above 15%.
+`sound <on|off>`, `sync`, `weather-retry`, and `rescan`. Brightness defaults to 50%;
+changing it or the resolved theme requests a five-second watch preview when the
+battery is above 15%.
 Routine weather and time synchronization does not wake the display.
 
 Run the desktop regression tests with:

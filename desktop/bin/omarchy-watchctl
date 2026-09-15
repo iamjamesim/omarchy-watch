@@ -10,7 +10,7 @@ import sys
 def usage() -> None:
     print(
         "usage: omarchy-watchctl status | pair <six-digit-code> | "
-        "brightness <20-100> | sound <on|off> | sync | rescan",
+        "brightness <20-100> | sound <on|off> | sync | weather-retry | rescan",
         file=sys.stderr,
     )
     raise SystemExit(2)
@@ -63,7 +63,7 @@ def main() -> None:
     if action == "sound" and len(sys.argv) == 3 and sys.argv[2] in {"on", "off"}:
         send({"command": "sound", "enabled": sys.argv[2] == "on"})
         return
-    if action in {"sync", "rescan"} and len(sys.argv) == 2:
+    if action in {"sync", "weather-retry", "rescan"} and len(sys.argv) == 2:
         send({"command": action})
         return
     usage()

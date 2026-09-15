@@ -53,13 +53,13 @@ class WeatherStatusTests(unittest.TestCase):
     def status(self):
         return json.loads(self.watch.status_path.read_text())
 
-    def start_refresh(self):
+    def start_refresh(self, *, retry=False):
         w = self.watch
         w.theme_path = w.theme_shell_path = self.root / "theme"
         w.palette = (daemon.DEFAULT_BACKGROUND, daemon.DEFAULT_FOREGROUND, daemon.DEFAULT_ACCENT)
         with mock.patch.object(daemon, "theme_palette", return_value=w.palette), \
                 mock.patch.object(daemon.threading, "Thread") as thread:
-            w.refresh_effective_context()
+            w.refresh_effective_context(retry_weather=retry)
             return thread
 
     def test_failure_survives_successful_watch_sync(self):
@@ -79,6 +79,8 @@ class WeatherStatusTests(unittest.TestCase):
         w = self.watch
         w.weather = self.reading(1900)
         w.weather_context_ready(None, "offline")
+        self.monotonic.return_value += 60
+        self.clock.return_value += 60
         thread = self.start_refresh()
         thread.assert_called_once()
         self.assertTrue(self.status()["weatherRefreshing"])
@@ -167,31 +169,124 @@ class WeatherStatusTests(unittest.TestCase):
         self.assertEqual(status["weatherStatus"], "unconfigured")
         self.assertEqual(status["weatherUpdated"], 0)
 
-    def test_manual_sync_retries_overdue_weather_without_bypassing_cooldown(self):
+    def test_manual_sync_only_sends_available_data(self):
         w = self.watch
         w.weather = self.reading(1900)
-        thread = self.start_refresh()
-        thread.assert_called_once()
-        w.weather_context_ready(None, "offline")
-        with mock.patch.object(daemon, "theme_palette", return_value=w.palette), \
-                mock.patch.object(daemon.threading, "Thread") as retry:
+        with mock.patch.object(w, "refresh_effective_context") as refresh:
             w.handle_command({"command": "sync"})
-        retry.assert_not_called()
+        refresh.assert_not_called()
         w.ensure_connection.assert_called_once_with("manual sync")
-        self.assertTrue(self.status()["weatherFetchFailed"])
-        self.monotonic.return_value += 60
-        thread = self.start_refresh()
-        thread.assert_called_once()
-        self.assertTrue(self.status()["weatherRefreshing"])
+        self.assertTrue(w.force_sync_requested)
 
-    def test_manual_sync_starts_overdue_refresh(self):
+    def test_automatic_retries_back_off_and_reset_after_success(self):
         w = self.watch
         w.weather = self.reading(1900)
-        w.theme_path = w.theme_shell_path = self.root / "theme"
+        self.start_refresh().assert_called_once()
+        for delay in (60, 120, 240, 480, 900, 900):
+            w.weather_context_ready(None, "offline")
+            self.assertEqual(self.status()["weatherRetryAt"], self.clock.return_value + delay)
+            self.monotonic.return_value += delay - 1
+            self.clock.return_value += delay - 1
+            self.start_refresh().assert_not_called()
+            self.monotonic.return_value += 1
+            self.clock.return_value += 1
+            self.start_refresh().assert_called_once()
+        reading = self.reading(0)
+        reading["fetchedAt"] = self.clock.return_value
+        w.weather_context_ready(reading, "")
+        self.assertFalse(self.status()["weatherFetchFailed"])
+        self.assertEqual(self.status()["weatherRetryAt"], 0)
+        self.start_refresh().assert_not_called()
+        self.clock.return_value += 900
+        self.monotonic.return_value += 900
+        self.start_refresh().assert_called_once()
+        w.weather_context_ready(None, "offline")
+        self.assertEqual(self.status()["weatherRetryAt"], self.clock.return_value + 60)
+
+    def test_manual_retry_requires_failure_and_keeps_global_cooldown(self):
+        w = self.watch
+        w.weather = self.reading(1900)
+        self.start_refresh(retry=True).assert_not_called()
+        self.start_refresh().assert_called_once()
+        w.weather_context_ready(None, "offline")
+        self.start_refresh(retry=True).assert_not_called()
+        self.monotonic.return_value += 60
+        self.clock.return_value += 60
+        self.start_refresh(retry=True).assert_called_once()
+        w.weather_context_ready(None, "offline")
+        self.monotonic.return_value += 60
+        self.clock.return_value += 60
+        self.start_refresh().assert_not_called()  # The automatic backoff is now two minutes.
+        self.start_refresh(retry=True).assert_called_once()
+        self.start_refresh(retry=True).assert_not_called()  # A request is already in flight.
+
+    def test_location_changes_cannot_bypass_request_cooldown(self):
+        w = self.watch
+        w.weather = self.reading(1900)
+        self.start_refresh().assert_called_once()
+        self.location_mock.return_value = {"latitude": 3, "longitude": 4}
+        w.weather_context_ready(self.reading(0), "")
+        self.start_refresh().assert_not_called()
+        self.assertFalse(self.status()["weatherRefreshing"])
+        self.monotonic.return_value += 60
+        self.start_refresh().assert_called_once()
+        self.assertFalse(self.status()["weatherFetchFailed"])
+
+    def test_no_location_does_not_attempt_a_fetch(self):
+        self.location_mock.return_value = {}
+        self.start_refresh().assert_not_called()
+
+    def prepare_profile(self):
+        w = self.watch
+        del w.profile_fingerprint
+        w.host_id = bytes(16)
         w.palette = (daemon.DEFAULT_BACKGROUND, daemon.DEFAULT_FOREGROUND, daemon.DEFAULT_ACCENT)
-        with mock.patch.object(daemon, "theme_palette", return_value=w.palette), \
-                mock.patch.object(daemon.threading, "Thread") as thread:
-            w.handle_command({"command": "sync"})
-        thread.assert_called_once()
-        self.assertTrue(self.status()["weatherRefreshing"])
-        w.ensure_connection.assert_called_once_with("manual sync")
+        w.brightness = 50
+        w.last_profile_revision = 0
+        w.current_theme_name = lambda: "TEST"
+        w.desktop_hour_cycle = lambda: 24
+        w.cached_allowance = mock.Mock(return_value={"remaining": 255, "window": 0,
+                                                    "updatedAt": 0, "resetsAt": 0})
+        w.profile_payload()
+
+    def test_unchanged_download_does_not_send_another_profile(self):
+        self.prepare_profile()
+        w = self.watch
+        w.synced_fingerprint = w.desired_fingerprint
+        weather = dict(w.weather, fetchedAt=self.now)
+        w.weather_context_ready(weather, "")
+        self.assertEqual(self.status()["weatherFetched"], self.now)
+        self.assertEqual(self.status()["desiredRevision"], self.status()["syncedRevision"])
+        w.ensure_connection.assert_not_called()
+
+    def test_delivery_records_the_payload_not_a_later_fetch(self):
+        self.prepare_profile()
+        w = self.watch
+        sent = w.inflight_weather
+        self.assertEqual(sent["updatedAt"], self.now - 600)
+        # A newer fetch arrives while the BLE write is awaiting acknowledgement.
+        w.weather = self.reading(0)
+        w.desired_fingerprint = "new-data"
+        w.sync_connected_profile = mock.Mock()
+        w.on_profile_written()
+        self.assertEqual(self.status()["weatherUpdated"], self.now)
+        self.assertEqual(self.status()["syncedWeather"], sent)
+        self.assertNotEqual(self.status()["desiredRevision"], self.status()["syncedRevision"])
+        w.sync_connected_profile.assert_called_once()
+        # The receipt survives a daemon restart.
+        w.sync_state_path = self.root / "sync.json"
+        del w.save_sync_state
+        w.save_sync_state()
+        self.assertEqual(w.load_sync_state()["syncedWeather"], sent)
+
+    def test_failed_delivery_does_not_replace_last_successful_receipt(self):
+        w = self.watch
+        w.state["syncedWeather"] = {"valid": False}
+        w.state["lastSynced"] = self.now - 100
+        w.inflight_weather = self.reading(0)
+        w.inflight_was_forced = False
+        w.handle_transport_error = mock.Mock(return_value=True)
+        w.on_profile_error(OSError("disconnected"))
+        w.write_state()
+        self.assertEqual(self.status()["lastSynced"], self.now - 100)
+        self.assertFalse(self.status()["syncedWeather"]["valid"])
