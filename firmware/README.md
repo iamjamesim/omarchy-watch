@@ -22,7 +22,7 @@ hours, and daily high/low until the forecast location's midnight. Readings older
 than 30 minutes have a history marker; tap weather or usage for the update age.
 See [data freshness](../docs/data-freshness.md) for the complete policy.
 
-Firmware 0.6 distinguishes needs-input and completion sounds through the board
+The firmware distinguishes needs-input and completion sounds through the board
 speaker: two equal notes for input, a descending pair for completion. Sound is
 enabled by default and toggleable from the Omarchy panel. The GPIO18 haptic
 pattern remains available for boards fitted with an optional vibration motor.

@@ -1,7 +1,30 @@
 # Release and marketplace checklist
 
-Use this checklist from a clean `main` checkout. The manifest, firmware, tag,
-release title, and artifact names use the same semantic version.
+Use this checklist to prepare a release, then publish from a clean `main`
+checkout. The manifest, firmware, tag, release title, and artifact names use the
+same semantic version.
+
+## Prepare the release separately
+
+Merge feature and fix PRs with their tests, feature documentation, and photos.
+Keep the version fields at the latest published version during development;
+describe new behavior as unreleased until the release-preparation PR.
+
+After those changes land, open a separate `Prepare vX.Y.Z` PR that updates:
+
+- `manifest.json`, `firmware/CMakeLists.txt`, and the firmware version constants
+  in `firmware/main/watch_profile.h` to the same version.
+- README release requirements and download artifact names.
+- `.github/release-notes/vX.Y.Z.md` with the final release behavior and update steps.
+
+Protocol versions describe wire compatibility and belong with the feature
+changes that introduce them; they are independent of the release version.
+
+If release preparation was staged on top of an unmerged feature branch, replay
+only its preparation commit onto current `main` after the feature PR merges.
+This keeps the release PR small even when the feature PR was squash-merged.
+Finish QA and required checks before merging the preparation PR, then tag the
+exact merged commit. Re-run affected checks if further fixes are needed.
 
 ## Validate
 
@@ -24,7 +47,8 @@ Activate ESP-IDF 5.5.x, then run:
 
 ```bash
 ./tools/package-release.sh
-(cd dist && sha256sum -c omarchy-watch-v0.6.0-flash.tar.gz.sha256)
+version=$(jq -r .version manifest.json)
+(cd dist && sha256sum -c "omarchy-watch-v${version}-flash.tar.gz.sha256")
 ```
 
 The packaging command creates the archive checksum alongside the archive.
@@ -39,15 +63,16 @@ prominently.
 ## Tag and publish
 
 Commit and push every release change before building final artifacts. Create
-an annotated `v0.6.0` tag on that exact commit and push the tag. The release
+an annotated tag matching the manifest version on that exact commit and push it. The release
 workflow rebuilds the firmware with ESP-IDF 5.5.5, verifies the archive, and
-creates a draft GitHub release using `.github/release-notes/v0.6.0.md`. Review
+creates a draft GitHub release using the matching `.github/release-notes/vX.Y.Z.md`. Review
 the draft and its attached archive and checksum before publishing it.
 
 ```bash
 git push origin main
-git tag -a v0.6.0 -m "Omarchy Watch v0.6.0"
-git push origin v0.6.0
+version=$(jq -r .version manifest.json)
+git tag -a "v${version}" -m "Omarchy Watch v${version}"
+git push origin "v${version}"
 ```
 
 Keep `main` unchanged while the marketplace submission is under review. The

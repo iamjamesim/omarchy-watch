@@ -2,7 +2,7 @@
 
 ## Scope
 
-Omarchy Watch v0.6.0 supports distinct Codex activity states and allowance
+This checkout supports distinct Codex activity states and allowance
 tracking. Activity events come from the separately installed
 [Codex companion v0.2.0 or newer](https://github.com/iamjamesim/omarchy-watch-codex).
 Allowance comes from Omarchy's agents panel. This checklist describes repeatable

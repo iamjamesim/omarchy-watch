@@ -20,9 +20,9 @@ _This is an independent community project, not an official Omarchy project._
 - Last-known weather and usage stay visible while useful, with a history marker and tap-to-view update age.
 - Distinct Codex working, needs-input, and done indicators, with separate sounds for input requests and completion, through an optional companion integration.
 
-Allowance tracking and the new Codex indicators require desktop bridge and
-firmware v0.6.0 or newer. Needs-input alerts require the optional Codex
-companion v0.2.0 or newer.
+Allowance tracking, data freshness, and the new Codex indicators are unreleased.
+To test them, build and install both the desktop bridge and firmware from this
+checkout. Needs-input alerts require the optional Codex companion v0.2.0 or newer.
 
 ## Install
 
@@ -34,7 +34,7 @@ not a waterproof consumer watch.
 
 ### 1. Flash the watch
 
-Download `omarchy-watch-v0.6.0-flash.tar.gz` from the
+Download `omarchy-watch-v0.5.3-flash.tar.gz` from the
 [latest release](https://github.com/iamjamesim/omarchy-watch/releases/latest),
 extract it, connect the board's USB-C programming port, and run:
 
