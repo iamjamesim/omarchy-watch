@@ -27,7 +27,10 @@ void watch_face_layout_set_allowance(watch_face_layout_t *layout, int remaining,
         layout->allowance_reset = label(447);
         layout->allowance_history = label(417);
         lv_label_set_text(layout->allowance_history, "\uf1da");
-        lv_obj_set_width(layout->allowance_history, 24);
+        // Leave room for the full glyph, including its negative left bearing.
+        lv_obj_set_width(layout->allowance_history, 26);
+        lv_obj_set_style_text_align(layout->allowance_history, LV_TEXT_ALIGN_LEFT, 0);
+        lv_obj_set_style_pad_left(layout->allowance_history, 2, 0);
         lv_obj_set_pos(layout->allowance_history, 322, 417);
         lv_obj_add_flag(layout->allowance_history, LV_OBJ_FLAG_HIDDEN);
         layout->allowance_touch = lv_obj_create(lv_screen_active());
