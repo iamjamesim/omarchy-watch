@@ -210,6 +210,27 @@ class FreshnessTests(unittest.TestCase):
         self.record(error='network unavailable')
         self.assertEqual(self.watch.cached_allowance(self.now), value)
 
+    def test_weather_deadline_is_rechecked_after_a_slow_fetch(self):
+        w = self.watch
+        w.weather = self.weather(899)
+        w.ensure_usage_monitor = mock.Mock()
+        w.theme_path = w.theme_shell_path = w.theme_name_path = self.root / 'theme'
+        w.weather_location_path = self.root / 'location'
+        w.context_signature = w.file_signature(
+            w.theme_path, w.theme_shell_path, w.theme_name_path,
+            w.weather_location_path, w.shell_config_path)
+        with mock.patch.object(daemon, 'weather_location', return_value={'latitude': 1, 'longitude': 2}), \
+             mock.patch.object(daemon, 'weather_unit_override', return_value=False), \
+             mock.patch.object(daemon, 'theme_palette', return_value=w.palette), \
+             mock.patch.object(daemon.time, 'time', return_value=self.now) as clock, \
+             mock.patch.object(daemon.threading, 'Thread') as thread:
+            w.check_context_files()
+            thread.assert_not_called()
+            clock.return_value = self.now + 60
+            w.check_context_files()
+            thread.assert_called_once()
+            self.assertTrue(w.context_refresh_inflight)
+
     def test_recovery_respects_disabled_usage_provider(self):
         self.record(age=3600)
         self.watch.shell_config_path.write_text(json.dumps({'bar': {'layout': {'right': [

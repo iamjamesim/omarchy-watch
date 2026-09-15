@@ -1122,16 +1122,17 @@ class WatchDaemon:
             previous_signature = self.context_signature
             self.context_signature = signature
             shell_changed = bool(previous_signature) and signature[4] != previous_signature[4]
-            weather_context_changed = bool(previous_signature) and (
-                signature[3] != previous_signature[3] or shell_changed
-            )
             if shell_changed:
                 self.context_changed()
-            self.refresh_effective_context(refresh_weather=weather_context_changed)
+            self.refresh_effective_context()
             self.refresh_desired_profile()
             if not self.sync_pending():
                 self.write_state(theme=self.current_theme_name())
         else:
+            # Check the fetch deadline on the existing minute reconciliation.
+            # A fixed 15-minute timer can miss it by a fetch's duration and then
+            # wait another full interval before trying again.
+            self.refresh_effective_context()
             self.refresh_desired_profile()
         return True
 
@@ -1189,10 +1190,6 @@ class WatchDaemon:
         if available:
             self.refresh_effective_context()
             self.refresh_usage_if_due()
-
-    def periodic_weather_refresh(self) -> bool:
-        self.refresh_effective_context()
-        return True
 
     def write_state(self, **changes) -> None:
         self.state.update(changes)
@@ -2442,7 +2439,6 @@ class WatchDaemon:
         )
         self.refresh_effective_context()
         GLib.timeout_add_seconds(CONTEXT_RECONCILE_SECONDS, self.check_context_files)
-        GLib.timeout_add_seconds(WEATHER_REFRESH_SECONDS, self.periodic_weather_refresh)
         GLib.MainLoop().run()
 
 

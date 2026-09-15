@@ -27,7 +27,9 @@ wake the screen, play sounds, or start data-update animations.
 
 - Weather keeps its 15-minute fetch schedule. Age comes from Open-Meteo's current
   observation timestamp, not download time. A separate fetch timestamp determines
-  whether another request is due.
+  whether another request is due. The existing minute reconciliation checks that
+  deadline, so a fetch's duration cannot postpone the next refresh by a full
+  interval. A due refresh starts within the next minute while the laptop is awake.
 - Usage uses Omarchy's existing 15-minute agents-panel refresh. The bridge watches
   its usage record for atomic replacements, with a 200 ms debounce and the
   existing 60-second reconciliation as a fallback.
