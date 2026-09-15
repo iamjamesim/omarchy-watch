@@ -437,7 +437,7 @@ Panel {
 
         PanelSectionHeader {
           visible: root.soundAvailable
-          text: "ALERTS"
+          text: "CODEX ALERTS"
           foreground: root.foreground
           fontFamily: root.fontFamily
         }
@@ -447,7 +447,7 @@ Panel {
           Layout.fillWidth: true
 
           Text {
-            text: "COMPLETION SOUND"
+            text: "SOUND"
             color: root.foreground
             font.family: root.fontFamily
             font.pixelSize: Style.font.body
@@ -463,6 +463,16 @@ Panel {
               "sound", Boolean(root.watchState.completionSound) ? "off" : "on"
             ])
           }
+        }
+
+        Text {
+          visible: root.soundAvailable
+          Layout.fillWidth: true
+          text: "Needs input and task completion"
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          wrapMode: Text.WordWrap
         }
 
         Text {

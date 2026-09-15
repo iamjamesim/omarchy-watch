@@ -18,9 +18,10 @@ The desktop side has two parts separated by a small file/command boundary:
 
 The bridge reads the resolved background, foreground, and accent from
 Omarchy's current theme state and reuses Omarchy's canonical weather location.
-It fetches Open-Meteo when that location has coordinates, refreshes every 15
-minutes while awake, and refreshes immediately after resume or network
-recovery. It retains the last successful result for brief offline periods. The
+It fetches Open-Meteo when that location has coordinates. While awake, the
+minute reconciliation starts a refresh once the last fetch is 15 minutes old;
+resume and network recovery also check for overdue data. It retains useful
+last-successful readings while offline. The
 request includes the configured latitude and longitude; the watch itself never
 joins Wi-Fi or calls a weather service.
 
@@ -54,6 +55,20 @@ resume, network recovery, and watch reconnect. Usage-file changes trigger prompt
 sync; recovery can invoke Omarchy's existing limits-only collector. See
 [data freshness](../docs/data-freshness.md) for timestamps, cache files, and
 expiry rules.
+
+## Codex alerts
+
+The panel's **Sound** switch applies to both **needs input** (blocking questions
+and permission requests) and **task completion** (the turn ended). Turning sound
+off keeps activity indicators and the existing visual alert behavior. Working
+activity remains quiet. The stored `completionSound` key and `sound` command
+remain compatible with earlier versions.
+
+Permission requests can trigger an alert even when Codex's automatic reviewer
+resolves them. The companion receives the request before it knows whether human
+input is required; the current hook contract does not expose a reliable signal
+for that distinction. Permission alerts remain enabled to avoid missing genuine
+blocking requests. See the [Codex hook documentation](https://learn.chatgpt.com/docs/hooks#permissionrequest).
 
 ## Install a development checkout
 
