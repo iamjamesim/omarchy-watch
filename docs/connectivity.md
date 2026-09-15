@@ -106,6 +106,12 @@ minutes or at reset; no refill is inferred. The newest common profile version
 is negotiated, so old firmware never receives these additional bytes. v4 does
 not add wake requests or alerts for allowance updates. See [allowance-preview.md](allowance-preview.md).
 
+Version 5 appends a signed little-endian eight-byte forecast-day expiry timestamp
+(111 bytes total). It retains source timestamps for cached usage and weather;
+allowance resets can already have passed so the watch can show `AWAITING UPDATE`.
+Weather current conditions and daily high/low expire independently. See
+[data-freshness.md](data-freshness.md) for the v5 display and recovery policy.
+
 Agent activity uses a separate encrypted 14-byte snapshot so older profile
 versions remain unchanged:
 

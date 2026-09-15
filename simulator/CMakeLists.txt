@@ -53,3 +53,9 @@ add_test(NAME profile COMMAND test-profile)
 add_test(NAME rim COMMAND test-rim)
 add_test(NAME sound COMMAND test-sound)
 add_test(NAME resource-colors COMMAND render-watchface ${CMAKE_CURRENT_BINARY_DIR}/test-face.ppm)
+
+foreach(state fresh cached expired next-day detail)
+    add_test(NAME freshness-${state}
+        COMMAND ${CMAKE_COMMAND} -E env WATCH_PREVIEW_FRESHNESS=${state}
+        $<TARGET_FILE:render-watchface> ${CMAKE_CURRENT_BINARY_DIR}/freshness-${state}.ppm)
+endforeach()

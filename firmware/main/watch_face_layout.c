@@ -1,4 +1,6 @@
 #include "watch_face_layout.h"
+#include "watch_profile.h"
+#include <stdio.h>
 
 #include <string.h>
 
@@ -172,6 +174,16 @@ void watch_face_layout_create(lv_obj_t *screen,
     layout->range = make_label(screen, "H --°  L --°", &jetbrains_mono_22);
     lv_obj_set_pos(layout->range, 194, 328);
 
+    layout->weather_history = make_label(screen, "\uf1da", &jetbrains_mono_22);
+    lv_obj_set_pos(layout->weather_history, 164, 323);
+    lv_obj_add_flag(layout->weather_history, LV_OBJ_FLAG_HIDDEN);
+    layout->weather_touch = lv_obj_create(screen);
+    lv_obj_remove_style_all(layout->weather_touch);
+    lv_obj_set_pos(layout->weather_touch, 28, 245);
+    lv_obj_set_size(layout->weather_touch, 354, 140);
+    lv_obj_add_flag(layout->weather_touch, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(layout->weather_touch, LV_OBJ_FLAG_SCROLLABLE);
+
     // U+F041 is Nerd Fonts' Font Awesome location marker.
     layout->location = make_label(screen, " LOCATION NOT SET", &jetbrains_mono_27);
     lv_obj_set_width(layout->location, 330);
@@ -334,4 +346,43 @@ void watch_face_layout_set_agent_state(watch_face_layout_t *layout,
         return;
     }
     lv_anim_start(&animation);
+}
+
+void watch_face_format_age(char *text, unsigned size, int64_t updated, int64_t now)
+{
+    if (updated <= 0 || updated > now) {
+        snprintf(text, size, "NOT UPDATED");
+        return;
+    }
+    int64_t age = now - updated;
+    if (age < 60) snprintf(text, size, "UPDATED JUST NOW");
+    else if (age < 3600) snprintf(text, size, "UPDATED %lldm AGO", (long long)(age / 60));
+    else if (age < 86400) snprintf(text, size, "UPDATED %lldh AGO", (long long)(age / 3600));
+    else snprintf(text, size, "UPDATED %lldd AGO", (long long)(age / 86400));
+}
+
+void watch_face_layout_weather_age(watch_face_layout_t *layout, int64_t updated, int64_t now,
+                                   bool current_visible, bool show_age)
+{
+    if (current_visible && omarchy_data_stale(updated, now))
+        lv_obj_remove_flag(layout->weather_history, LV_OBJ_FLAG_HIDDEN);
+    else lv_obj_add_flag(layout->weather_history, LV_OBJ_FLAG_HIDDEN);
+    if (show_age) {
+        char text[40];
+        watch_face_format_age(text, sizeof(text), updated, now);
+        char *space = strchr(text, ' ');
+        if (space) *space = '\n';
+        lv_label_set_text(layout->condition, text);
+    }
+}
+
+void watch_face_layout_weather_snapshot(watch_face_layout_t *layout,
+    const char *icon, const char *temperature, const char *condition, const char *range,
+    const char *location, int64_t updated, int64_t daily_expires, int64_t now, bool show_age)
+{
+    bool current = omarchy_weather_current(updated, now);
+    bool daily = updated > 0 && updated <= now && daily_expires > now;
+    watch_face_layout_set_weather(layout, current ? icon : "", current ? temperature : "--°",
+        current ? condition : "", daily ? range : "H --°  L --°", location);
+    watch_face_layout_weather_age(layout, updated, now, current, show_age);
 }

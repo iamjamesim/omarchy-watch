@@ -41,6 +41,29 @@ static void test_resource_colors(void)
             exit(1);
         }
     }
+    /* Refresh transitions keep number geometry stable and clear stale markers. */
+    const int64_t now = 1800000000;
+    watch_face_layout_set_allowance(&layout, 54, 1, 86400);
+    const int x = lv_obj_get_x(layout.allowance_title);
+    watch_face_layout_allowance_age(&layout, 54, now-7200, now+86400, now, false);
+    if (lv_obj_has_flag(layout.allowance_history, LV_OBJ_FLAG_HIDDEN) ||
+        strcmp(lv_label_get_text(layout.allowance_title), "CODEX  54% LEFT") ||
+        lv_obj_get_x(layout.allowance_title) != x) exit(1);
+    watch_face_layout_set_allowance(&layout, 54, 1, 86400);
+    watch_face_layout_allowance_age(&layout, 54, now, now+86400, now, false);
+    if (!lv_obj_has_flag(layout.allowance_history, LV_OBJ_FLAG_HIDDEN) ||
+        lv_obj_get_x(layout.allowance_title) != x) exit(1);
+    watch_face_layout_weather_snapshot(&layout, "", "68°", "PARTLY\nCLOUDY",
+        "H 72°  L 61°", "", now-14400, now+3600, now, false);
+    if (strcmp(lv_label_get_text(layout.temperature), "--°") ||
+        strcmp(lv_label_get_text(layout.range), "H 72°  L 61°")) exit(1);
+    watch_face_layout_weather_snapshot(&layout, "", "68°", "PARTLY\nCLOUDY",
+        "H 72°  L 61°", "", now-14400, now, now, false);
+    if (strcmp(lv_label_get_text(layout.range), "H --°  L --°")) exit(1);
+    watch_face_layout_weather_snapshot(&layout, "", "68°", "PARTLY\nCLOUDY",
+        "H 72°  L 61°", "", now, now+86400, now, false);
+    if (strcmp(lv_label_get_text(layout.temperature), "68°") ||
+        !lv_obj_has_flag(layout.weather_history, LV_OBJ_FLAG_HIDDEN)) exit(1);
     watch_face_layout_set_allowance(&layout, 10, 1, 0);
     if (!lv_color_eq(lv_obj_get_style_text_color(layout.allowance_title, 0), foreground)) {
         fputs("Expired allowance highlighted as low\n", stderr);
@@ -188,14 +211,17 @@ int main(int argc, char **argv)
     }
     const char *profile_path = getenv("WATCH_PREVIEW_PROFILE");
     if (profile_path != NULL) {
+        omarchy_profile_v5_t packet = {0};
         omarchy_profile_v4_t profile;
         FILE *input = fopen(profile_path, "rb");
         if (input == NULL) { perror(profile_path); return 2; }
-        const size_t size = fread(&profile, 1, sizeof(profile), input);
+        const size_t size = fread(&packet, 1, sizeof(packet), input);
         const bool extra = fgetc(input) != EOF;
         fclose(input);
-        if (size != sizeof(profile) || extra || !omarchy_profile_v4_is_valid(&profile)) {
-            fputs("Invalid v4 preview profile\n", stderr);
+        profile = packet.base;
+        if (extra || !((size == sizeof(packet) && omarchy_profile_v5_is_valid(&packet)) ||
+                       (size == sizeof(profile) && omarchy_profile_v4_is_valid(&profile)))) {
+            fputs("Invalid preview profile\n", stderr);
             return 2;
         }
         const int64_t now = time(NULL);
@@ -204,6 +230,41 @@ int main(int argc, char **argv)
             omarchy_allowance_remaining(profile.allowance_remaining, profile.allowance_updated_at,
                                         profile.allowance_resets_at, now),
             profile.allowance_window, profile.allowance_resets_at - now);
+        watch_face_layout_allowance_age(&layout,
+            omarchy_allowance_remaining(profile.allowance_remaining, profile.allowance_updated_at,
+                                        profile.allowance_resets_at, now),
+            profile.allowance_updated_at, profile.allowance_resets_at, now, false);
+    }
+    const char *freshness = getenv("WATCH_PREVIEW_FRESHNESS");
+    if (freshness) {
+        const int64_t now = 1800000000;
+        int64_t age = strcmp(freshness, "fresh") == 0 ? 60 : 7200;
+        int64_t resets = now + 4 * 86400;
+        int64_t daily_end = now + 7200;
+        bool detail = strcmp(freshness, "detail") == 0;
+        if (strcmp(freshness, "expired") == 0) { age = 14400; resets = now; }
+        if (strcmp(freshness, "next-day") == 0) { age = 28800; daily_end = now; resets = now; }
+        int left = omarchy_allowance_remaining(54, now-age, resets, now);
+        watch_face_layout_set_allowance(&layout, left, 1, resets-now);
+        watch_face_layout_allowance_age(&layout, left, now-age, resets, now, detail);
+        watch_face_layout_weather_snapshot(&layout, "", "68°", "PARTLY\nCLOUDY",
+            "H 72°  L 61°", "", now-age, daily_end, now, detail);
+        watch_face_layout_set_connected(&layout, true);
+        if (strcmp(freshness, "expired") == 0 || strcmp(freshness, "next-day") == 0) {
+            if (strcmp(lv_label_get_text(layout.allowance_reset), "AWAITING UPDATE") ||
+                strcmp(lv_label_get_text(layout.temperature), "--°") ||
+                !lv_obj_has_flag(layout.allowance_fill, LV_OBJ_FLAG_HIDDEN)) return 1;
+        }
+        if (strcmp(freshness, "expired") == 0 && strcmp(lv_label_get_text(layout.range), "H 72°  L 61°")) return 1;
+        if (strcmp(freshness, "next-day") == 0 && strcmp(lv_label_get_text(layout.range), "H --°  L --°")) return 1;
+        if (strcmp(freshness, "cached") == 0 &&
+            (lv_obj_has_flag(layout.weather_history, LV_OBJ_FLAG_HIDDEN) ||
+             lv_obj_has_flag(layout.allowance_history, LV_OBJ_FLAG_HIDDEN))) return 1;
+        if (detail && (strcmp(lv_label_get_text(layout.allowance_reset), "UPDATED 2h AGO") ||
+                       strcmp(lv_label_get_text(layout.condition), "UPDATED\n2h AGO"))) return 1;
+        if (strcmp(freshness, "fresh") == 0 &&
+            (!lv_obj_has_flag(layout.weather_history, LV_OBJ_FLAG_HIDDEN) ||
+             !lv_obj_has_flag(layout.allowance_history, LV_OBJ_FLAG_HIDDEN))) return 1;
     }
     if (argc == 8) {
         watch_agent_state_t state;

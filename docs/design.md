@@ -129,6 +129,13 @@ by the aggregate glyph. A new prompt implicitly acknowledges the previous
 result in that session, and interruption or session end removes it. The design
 does not infer acknowledgement from desktop window focus.
 
+## Data freshness
+
+Weather and allowance preserve useful last-known readings. A neutral history
+glyph marks cached values without moving the numbers. Tapping either section
+shows the observation age for three seconds. See
+[data-freshness.md](data-freshness.md) for exact cutoffs and recovery behavior.
+
 ## Evolution constraints
 
 - Old watches must be able to ignore fields introduced by a newer companion.

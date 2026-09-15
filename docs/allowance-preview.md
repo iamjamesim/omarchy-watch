@@ -62,11 +62,10 @@ and display `round(100 * (1 - percent))`. Unknown must not become 0% or 100%.
 Use `resetsAt` for the countdown and retain the source `updatedAt`; receiving
 the same file again or syncing Bluetooth must not refresh its age.
 
-The collector can write a fresh record with an error and no limits. A failed
-updater can also leave an old record behind. Both need explicit unavailable/
-stale handling. Passing the reset deadline must not manufacture a fresh 100%.
-If the agents panel is disabled, records may stop updating: reading this source
-does not by itself provide an independent collection service.
+The bridge retains validated last-successful metadata when a subsequent fetch
+fails. It watches source-record updates and requests overdue limits through the
+existing collector during recovery. See [data-freshness.md](data-freshness.md)
+for the source, display, and reset contract.
 
 ## Implemented behavior
 
@@ -75,14 +74,14 @@ does not by itself provide an independent collection service.
 - Accept schema 1, finite fractions in [0,1], timezone-aware timestamps,
   `Weekly (7-day)` and numeric `h window` / `m window` labels. Unknown windows
   make the reading unavailable rather than hide a potentially binding limit.
-- Missing, malformed, provider-error, future-dated, reset-past, or more-than-30-
-  minute-old data becomes unavailable. Diagnostic changes are logged once per
-  transition. Extra unrelated JSON fields are ignored.
-- Reuse the bridge's 60-second context reconciliation; no new API calls or
-  collection process. Profile v4 adds 18 bytes to v3; negotiation retains the
-  original v1/v2/v3 wire shapes for older watches.
-- The watch independently expires readings and updates the countdown while
-  awake/on wake. A reset deadline never implies a refill without new data.
+- Malformed or failed observations preserve a valid cached reading. Future-dated
+  observations are rejected. Reset-past readings show `AWAITING UPDATE`, never
+  an inferred refill. Extra unrelated JSON fields are ignored.
+- Watch source-file updates with 60-second reconciliation as fallback. Recovery
+  can invoke the existing limits collector. Profile v5 is 111 bytes; negotiation
+  retains the original v1–v4 wire shapes for older watches.
+- The watch marks readings cached after 30 minutes and updates the countdown
+  while awake/on wake. A reset deadline never implies a refill without new data.
 - Rim geometry updates only when remaining changes. No new animation, alert,
   sound, wake timer, or always-on display behavior.
 

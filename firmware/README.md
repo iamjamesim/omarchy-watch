@@ -16,8 +16,11 @@ Dynamic CPU frequency scaling, tickless idle, automatic light sleep, Bluetooth
 modem sleep, and slower owned-device advertising reduce the idle load. After a
 link loss, the watch advertises more quickly for 30 seconds before returning to
 the slower rate. Cached profiles restore the last theme, brightness, and forecast without
-waiting for Bluetooth. The v4 profile also restores Codex allowance, which
-expires 30 minutes after its source observation or at its reset deadline.
+waiting for Bluetooth. The v5 profile also restores Codex allowance and forecast-day expiry.
+Cached usage remains visible until its reset, current weather for up to three
+hours, and daily high/low until the forecast location's midnight. Readings older
+than 30 minutes have a history marker; tap weather or usage for the update age.
+See [data freshness](../docs/data-freshness.md) for the complete policy.
 
 Firmware 0.6 distinguishes needs-input and completion sounds through the board
 speaker: two equal notes for input, a descending pair for completion. Sound is

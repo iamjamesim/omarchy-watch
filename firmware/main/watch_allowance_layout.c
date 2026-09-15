@@ -1,5 +1,6 @@
 #include "watch_face_layout.h"
 #include "watch_rim_geometry.h"
+#include "watch_profile.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -24,6 +25,17 @@ void watch_face_layout_set_allowance(watch_face_layout_t *layout, int remaining,
         layout->allowance_fill = lv_line_create(lv_screen_active());
         layout->allowance_title = label(417);
         layout->allowance_reset = label(447);
+        layout->allowance_history = label(417);
+        lv_label_set_text(layout->allowance_history, "\uf1da");
+        lv_obj_set_width(layout->allowance_history, 24);
+        lv_obj_set_pos(layout->allowance_history, 322, 417);
+        lv_obj_add_flag(layout->allowance_history, LV_OBJ_FLAG_HIDDEN);
+        layout->allowance_touch = lv_obj_create(lv_screen_active());
+        lv_obj_remove_style_all(layout->allowance_touch);
+        lv_obj_set_pos(layout->allowance_touch, 28, 405);
+        lv_obj_set_size(layout->allowance_touch, 354, 78);
+        lv_obj_add_flag(layout->allowance_touch, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_remove_flag(layout->allowance_touch, LV_OBJ_FLAG_SCROLLABLE);
         watch_rim_points(layout->allowance_points, WATCH_SCREEN_CORNER_RADIUS, WATCH_RIM_INSET);
         lv_line_set_points(layout->allowance_track, layout->allowance_points, WATCH_RIM_POINT_COUNT);
         lv_obj_set_style_line_width(layout->allowance_track, 3, 0);
@@ -36,6 +48,8 @@ void watch_face_layout_set_allowance(watch_face_layout_t *layout, int remaining,
     lv_obj_set_style_line_color(layout->allowance_track, accent, 0);
     lv_obj_set_style_line_color(layout->allowance_fill, accent, 0);
     lv_obj_set_style_text_color(layout->allowance_reset, lv_obj_get_style_text_color(layout->date, 0), 0);
+    lv_obj_set_style_text_color(layout->allowance_history, lv_obj_get_style_text_color(layout->date, 0), 0);
+    lv_obj_add_flag(layout->allowance_history, LV_OBJ_FLAG_HIDDEN);
     char title[40], reset[48];
     if (remaining < 0 || remaining > 100 || reset_seconds <= 0) {
         remaining = -1;
@@ -83,4 +97,19 @@ void watch_face_layout_set_allowance(watch_face_layout_t *layout, int remaining,
     }
     lv_line_set_points(layout->allowance_fill, layout->allowance_fill_points, n);
     lv_obj_remove_flag(layout->allowance_fill, LV_OBJ_FLAG_HIDDEN);
+}
+
+void watch_face_layout_allowance_age(watch_face_layout_t *layout, int remaining,
+                                     int64_t updated, int64_t resets, int64_t now, bool show_age)
+{
+    if (remaining >= 0 && omarchy_data_stale(updated, now))
+        lv_obj_remove_flag(layout->allowance_history, LV_OBJ_FLAG_HIDDEN);
+    else lv_obj_add_flag(layout->allowance_history, LV_OBJ_FLAG_HIDDEN);
+    if (updated > 0 && resets <= now)
+        lv_label_set_text(layout->allowance_reset, "AWAITING UPDATE");
+    if (show_age) {
+        char text[40];
+        watch_face_format_age(text, sizeof(text), updated, now);
+        lv_label_set_text(layout->allowance_reset, text);
+    }
 }

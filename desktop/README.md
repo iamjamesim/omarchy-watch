@@ -47,6 +47,14 @@ throughout recovery.
 The bundled endpoint is Open-Meteo's non-commercial free API. Commercial
 derivatives must use an appropriate Open-Meteo plan or replace the provider.
 
+## Weather and usage recovery
+
+The bridge retains last-successful readings while refreshing overdue sources on
+resume, network recovery, and watch reconnect. Usage-file changes trigger prompt
+sync; recovery can invoke Omarchy's existing limits-only collector. See
+[data freshness](../docs/data-freshness.md) for timestamps, cache files, and
+expiry rules.
+
 ## Install a development checkout
 
 From the repository root:

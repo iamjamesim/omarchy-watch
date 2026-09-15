@@ -44,8 +44,9 @@ to create a temporary socket. This does not contact the actual watch.
 3. The Codex companion is installed separately with explicit opt-in. Start a new Codex session
    and inspect/trust its changed `/hooks`. Older open sessions retain their
    original hook paths; avoid removing a cache they still use.
-4. Confirm bridge status reports protocol 4. Check the Omarchy agents panel has
-   a fresh Codex allowance record. Allow up to 60 seconds for bridge reconciliation.
+4. Confirm bridge status reports protocol 5. Check the Omarchy agents panel has
+   a fresh Codex allowance record. File updates should sync promptly; the fallback
+  reconciliation runs every 60 seconds.
 
 ## Acceptance checks
 
@@ -68,8 +69,10 @@ to create a temporary socket. This does not contact the actual watch.
   without an off-center or rotated stuck glyph.
 - Compare rim against the desktop's **used** fraction: 26% used means 74% left.
   Verify the displayed window/reset belongs to the selected limit.
-- Disconnect and reconnect normally. The rim becomes unavailable after 30
-  minutes from source observation, or when reset passes, even without desktop.
+- Disconnect and reconnect normally. Cached readings show a history marker
+  after 30 minutes; the rim clears at reset even without desktop. Check weather
+  current/daily cutoffs and both tap-for-age targets using
+  [data-freshness.md](data-freshness.md).
   Do not edit actual account records to force a test; use simulator fixtures.
 - Check brightness/theme, weather, battery detail, pairing, and normal reconnect
   still behave as before. Inspect rounded corners and low allowance at wrist scale.

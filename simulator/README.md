@@ -94,3 +94,17 @@ When accepting a visual checkpoint, copy `simulator/output/watchface.png` to
 `docs/images/plain-01.png` to retain the accepted device framebuffer. The repository landing page uses
 photos in `docs/images/omarchy-watch-hero.webp` and
 `docs/images/omarchy-watch-on-wrist.webp`. Generated working previews remain ignored.
+
+## Freshness states
+
+`ctest --test-dir simulator/build --output-on-failure` checks fresh, cached,
+expired, next-day, and tap-for-age states through the shared firmware renderer.
+To inspect one manually:
+
+```bash
+WATCH_PREVIEW_FRESHNESS=cached simulator/build/render-watchface /tmp/cached.ppm
+magick /tmp/cached.ppm /tmp/cached.png
+```
+
+Use `fresh`, `cached`, `expired`, `next-day`, or `detail`. These are synthetic
+fixtures, independent of the actual account and weather services.

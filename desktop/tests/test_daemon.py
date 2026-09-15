@@ -1132,8 +1132,9 @@ class EffectiveContextTests(unittest.TestCase):
 
     def test_open_meteo_weather_reuses_omarchy_location_and_units(self):
         report = {
-            "current": {"temperature_2m": 68.4, "weather_code": 2, "is_day": 1},
-            "daily": {"temperature_2m_max": [72.2], "temperature_2m_min": [60.6]},
+            "timezone": "America/Los_Angeles",
+            "current": {"time": int(time.time()) - 300, "temperature_2m": 68.4, "weather_code": 2, "is_day": 1},
+            "daily": {"time": [int(time.time())], "temperature_2m_max": [72.2], "temperature_2m_min": [60.6]},
         }
 
         class Response:

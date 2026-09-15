@@ -17,6 +17,7 @@ _This is an independent community project, not an official Omarchy project._
 - Date, time, and weather from your desktop top bar.
 - Color scheme automatically synced to your current Omarchy theme.
 - Codex remaining allowance and reset countdown from Omarchy's agents panel, with a colored rim showing how much is left.
+- Last-known weather and usage stay visible while useful, with a history marker and tap-to-view update age.
 - Distinct Codex working, needs-input, and done indicators, with separate sounds for input requests and completion, through an optional companion integration.
 
 Allowance tracking and the new Codex indicators require desktop bridge and
@@ -122,6 +123,7 @@ Bluetooth behavior can vary across Linux hardware and drivers. If something does
 
 - [Firmware](firmware/README.md) — build, flash, power, and boot behavior
 - [Desktop client](desktop/README.md) — requirements, settings, and diagnostics
+- [Data freshness](docs/data-freshness.md) — cached readings, expiry, and recovery
 - [Design](docs/design.md) — watch-face and product decisions
 - [Connectivity](docs/connectivity.md) — secure pairing and Bluetooth protocol
 - [Simulator](simulator/README.md) — deterministic watch-face previews

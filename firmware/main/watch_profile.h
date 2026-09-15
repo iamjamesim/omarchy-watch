@@ -6,7 +6,7 @@
 
 enum {
     OMARCHY_PROTOCOL_VERSION_MIN = 1,
-    OMARCHY_PROTOCOL_VERSION = 4,
+    OMARCHY_PROTOCOL_VERSION = 5,
     OMARCHY_PROFILE_KIND = 1,
     OMARCHY_FIRMWARE_VERSION_MAJOR = 0,
     OMARCHY_FIRMWARE_VERSION_MINOR = 6,
@@ -92,10 +92,29 @@ typedef struct __attribute__((packed)) {
     int64_t allowance_resets_at;
 } omarchy_profile_v4_t;
 
+/* v5 preserves the v4 prefix and carries the forecast's local midnight.
+ * Timestamps remain source times even when a cached snapshot is retransmitted. */
+typedef struct __attribute__((packed)) {
+    omarchy_profile_v4_t base;
+    int64_t weather_daily_expires_at;
+} omarchy_profile_v5_t;
+
+enum { OMARCHY_DATA_FRESH_SECONDS = 1800, OMARCHY_WEATHER_CURRENT_SECONDS = 10800 };
+
+static inline bool omarchy_data_stale(int64_t updated, int64_t now)
+{
+    return updated > 0 && updated <= now && now - updated > OMARCHY_DATA_FRESH_SECONDS;
+}
+
+static inline bool omarchy_weather_current(int64_t updated, int64_t now)
+{
+    return updated > 0 && updated <= now && now - updated <= OMARCHY_WEATHER_CURRENT_SECONDS;
+}
+
 static inline int omarchy_allowance_remaining(uint8_t remaining, int64_t updated,
                                               int64_t resets, int64_t now)
 {
-    return remaining <= 100 && updated <= now && now - updated <= 1800 && resets > now
+    return remaining <= 100 && updated > 0 && updated <= now && resets > now
         ? remaining : -1;
 }
 
@@ -142,6 +161,7 @@ _Static_assert(sizeof(omarchy_profile_v1_t) == 36, "profile wire size changed");
 _Static_assert(sizeof(omarchy_profile_v2_t) == 81, "v2 profile wire size changed");
 _Static_assert(sizeof(omarchy_profile_v3_t) == 85, "v3 profile wire size changed");
 _Static_assert(sizeof(omarchy_profile_v4_t) == 103, "v4 profile wire size changed");
+_Static_assert(sizeof(omarchy_profile_v5_t) == 111, "v5 profile wire size changed");
 _Static_assert(sizeof(omarchy_identity_v1_t) == 32, "identity wire size changed");
 _Static_assert(sizeof(omarchy_activity_v1_t) == 14, "activity wire size changed");
 
@@ -236,4 +256,28 @@ static inline bool omarchy_profile_v4_is_valid(const omarchy_profile_v4_t *profi
           profile->allowance_updated_at <= base.unix_time &&
           profile->allowance_resets_at > base.unix_time &&
           profile->allowance_resets_at <= INT64_C(3155759999)));
+}
+
+static inline bool omarchy_profile_v5_is_valid(const omarchy_profile_v5_t *profile)
+{
+    if (!profile || profile->base.base.version != 5) return false;
+    omarchy_profile_v4_t base = profile->base;
+    base.base.version = 4;
+    base.allowance_remaining = 255;
+    base.allowance_window = 0;
+    base.allowance_updated_at = base.allowance_resets_at = 0;
+    const omarchy_profile_v4_t *p = &profile->base;
+    const bool allowance_valid =
+        (p->allowance_remaining == 255 && p->allowance_window == 0 &&
+         p->allowance_updated_at == 0 && p->allowance_resets_at == 0) ||
+        (p->allowance_remaining <= 100 && (p->allowance_window == 1 || p->allowance_window == 2) &&
+         p->allowance_updated_at >= INT64_C(1704067200) &&
+         p->allowance_updated_at <= p->base.unix_time &&
+         p->allowance_resets_at > p->allowance_updated_at &&
+         p->allowance_resets_at <= INT64_C(3155759999));
+    const int64_t end = profile->weather_daily_expires_at;
+    return omarchy_profile_v4_is_valid(&base) && allowance_valid &&
+        (end == 0 || (end >= INT64_C(1704067200) && end <= INT64_C(3155759999))) &&
+        (!(p->base.flags & OMARCHY_PROFILE_WEATHER_VALID) ||
+         p->base.weather_updated_at <= p->base.unix_time);
 }

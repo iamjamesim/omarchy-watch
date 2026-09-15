@@ -14,7 +14,7 @@ spec = importlib.util.spec_from_file_location("watch_bridge", ROOT / "desktop/da
 bridge = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(bridge)
 watch = bridge.WatchDaemon.__new__(bridge.WatchDaemon)
-watch.watch_protocol = 4
+watch.watch_protocol = 5
 watch.last_profile_revision = 0
 watch.force_sync_requested = False
 watch.current_theme_name = lambda: "PREVIEW"
