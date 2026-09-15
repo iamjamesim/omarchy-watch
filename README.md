@@ -10,13 +10,18 @@ _This is an independent community project, not an official Omarchy project._
 ## Key features
 
 <p align="center">
-  <img src="docs/images/omarchy-watch-on-wrist.webp" width="560" alt="Omarchy Watch on a wrist with the pink Omarchy theme">
+  <img src="docs/images/omarchy-watch-on-wrist.webp" width="560" alt="Omarchy Watch on a wrist with a pink theme, Codex allowance rim, and reset countdown">
 </p>
 
 - A watch face designed to match Omarchy's look and feel with JetBrains Mono and Nerd Fonts glyphs.
 - Date, time, and weather from your desktop top bar.
 - Color scheme automatically synced to your current Omarchy theme.
-- Codex activity and completion alerts through an optional, separately installed companion integration.
+- Codex remaining allowance and reset countdown from Omarchy's agents panel, with a colored rim showing how much is left.
+- Distinct Codex working, needs-input, and done indicators, with separate sounds for input requests and completion, through an optional companion integration.
+
+Allowance tracking and the new Codex indicators require desktop bridge and
+firmware v0.6.0 or newer. Needs-input alerts require the optional Codex
+companion v0.2.0 or newer.
 
 ## Install
 
@@ -28,7 +33,7 @@ not a waterproof consumer watch.
 
 ### 1. Flash the watch
 
-Download `omarchy-watch-v0.5.3-flash.tar.gz` from the
+Download `omarchy-watch-v0.6.0-flash.tar.gz` from the
 [latest release](https://github.com/iamjamesim/omarchy-watch/releases/latest),
 extract it, connect the board's USB-C programming port, and run:
 
@@ -63,15 +68,20 @@ select **Scan Again**. Pairing is only required once.
 
 ### 4. Optional: enable Codex activity indicators
 
-Codex activity and completion alerts are available through the separate
+Codex activity, needs-input, and completion alerts are available through the separate
 [Omarchy Watch for Codex](https://github.com/iamjamesim/omarchy-watch-codex)
 companion, distributed as a Codex plugin and managed independently through
 Codex. This keeps the base watch installation independent of agent
 configuration and lets users enable or remove Codex support without
 reinstalling Omarchy Watch. The companion is never installed automatically.
 
+Needs-input alerts cover blocking questions and permission requests. After
+installing or updating the companion, start a new Codex session and review its
+hooks with `/hooks`. Allowance tracking reads Omarchy's agents panel separately
+and does not require the companion plugin.
+
 If an agent is performing this installation, it should explain that the
-companion adds four Codex lifecycle hooks and ask whether the user wants this
+companion adds Codex activity and tool hooks and ask whether the user wants this
 feature. It must not install or configure the companion unless the user gives
 separate, explicit approval. Review the companion's behavior and privacy
 disclosure before opting in; installing Omarchy Watch alone does not constitute
