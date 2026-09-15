@@ -34,7 +34,7 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             --draft \
             --verify-tag \
-            --title "Omarchy Watch $GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
             --notes-file "$notes" \
             dist/*.tar.gz \
             dist/*.tar.gz.sha256
