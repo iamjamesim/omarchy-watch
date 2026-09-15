@@ -75,8 +75,8 @@ configuration and lets users enable or remove Codex support without
 reinstalling Omarchy Watch. The companion is never installed automatically.
 
 Needs-input alerts require companion v0.2.0 or newer and cover blocking questions
-and permission requests. After
-installing or updating the companion, start a new Codex session and review its
+and permission requests. After installing or updating the companion, start a
+new Codex session and review its
 hooks with `/hooks`. Allowance tracking reads Omarchy's agents panel separately
 and does not require the companion plugin.
 

@@ -8,14 +8,6 @@ tracking. Activity events come from the separately installed
 Allowance comes from Omarchy's agents panel. This checklist describes repeatable
 validation; it is not a record of completed test runs.
 
-- Working: excited robot, brightness pulse.
-- Needs input: excited robot, existing bounce.
-- Finished: happy robot (U+F1719), relaxed sway.
-- Idle: hidden; tap either attention state to acknowledge.
-- Rim: Codex remaining allowance, selected weekly/session window and reset time.
-- Needs input: existing same-pitch beep-beep; finished: descending two-note pair.
-- Allowance and battery highlight at 20% or less; charging also highlights battery.
-
 ## Automated checks
 
 Run from the watch repository:
@@ -23,9 +15,7 @@ Run from the watch repository:
 ```bash
 ./tools/render-watchface.sh
 python -m unittest discover -s desktop/tests
-simulator/build/test-profile
-simulator/build/test-rim
-simulator/build/test-sound
+ctest --test-dir simulator/build --output-on-failure
 python tools/preview-live-allowance.py
 python tools/preview-agent-ux.py
 ```
@@ -50,10 +40,7 @@ to create a temporary socket. This does not contact the actual watch.
 
 ## Acceptance checks
 
-- Rim geometry is calibrated: 115 px outer radius, 2 px inset, 3 px stroke,
-  and 40% accent track.
-
-- Start a turn: excited face pulses, not bounces.
+- Start a turn: the robot pulses in opacity while screen brightness stays fixed.
 - In Plan mode, explicitly ask Codex to use `request_user_input`: it bounces
   while waiting, resumes pulsing after the answer, then uses happy eyes/sway
   after completion.
@@ -76,11 +63,12 @@ to create a temporary socket. This does not contact the actual watch.
   Do not edit actual account records to force a test; use simulator fixtures.
 - Check brightness/theme, weather, battery detail, pairing, and normal reconnect
   still behave as before. Inspect rounded corners and low allowance at wrist scale.
+  Verify allowance and battery highlights at 20% or less, plus the charging highlight.
 
 ## Compatibility and rollback
 
-Old watch firmware negotiates v1–v3 and receives no allowance extension. Old
-desktop software still sends accepted v1–v3 profiles to the new firmware.
+Peers negotiating v1–v3 exchange no allowance fields. The bridge also supports
+the intermediate v4 layout; full freshness behavior requires v5 on both sides.
 Agent completion falls back to the legacy attention state on old watches;
 old bridges ignore the new companion's needs-input event.
 

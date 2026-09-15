@@ -6,6 +6,8 @@ changes a reading's original timestamp.
 
 ## Display contract
 
+These rules apply when both peers support profile v5.
+
 | Data | Fresh | Cached | Hard boundary |
 | --- | --- | --- | --- |
 | Codex allowance | Successful observation at most 30 minutes old | Keep percentage and rim; show a small neutral history glyph | At the recorded reset, clear the fill and show `AWAITING UPDATE` |
@@ -62,16 +64,16 @@ DST days. Open-Meteo timestamps are requested as Unix seconds; see its
 
 ## Protocol and compatibility
 
-Profile v5 appends an eight-byte forecast-day expiry to the v4 layout, for a
-111-byte packet. It accepts cached allowance observations, including a passed
-reset so firmware can distinguish `AWAITING UPDATE` from no prior reading.
+Profile v5 carries the forecast-day expiry and preserves source timestamps.
 The watch applies age and reset rules locally while disconnected and on wake.
+See [connectivity.md](connectivity.md) for packet layouts and negotiation.
 
-Old desktops and watches still negotiate v1–v4. A v4 watch receives the original
-103-byte format, with the original 30-minute allowance expiry. New firmware
-accepts legacy packets; full freshness behavior requires v5 on both sides.
-A later legacy profile removes newer cached profile layouts so reboot cannot
-restore superseded data.
+With v2–v4 peers, weather uses the legacy six-hour cutoff for the whole reading;
+v1 carries time only.
+For v4 allowance, the bridge sends unavailable once the observation is over
+30 minutes old or its reset has passed. Full freshness behavior requires v5 on
+both sides. Receiving a legacy profile removes newer cached layouts so reboot
+cannot restore superseded data.
 
 ## Verification
 

@@ -20,9 +20,6 @@ After those changes land, open a separate `Prepare vX.Y.Z` PR that updates:
 Protocol versions describe wire compatibility and belong with the feature
 changes that introduce them; they are independent of the release version.
 
-If release preparation was staged on top of an unmerged feature branch, replay
-only its preparation commit onto current `main` after the feature PR merges.
-This keeps the release PR small even when the feature PR was squash-merged.
 Finish QA and required checks before merging the preparation PR, then tag the
 exact merged commit. Re-run affected checks if further fixes are needed.
 
@@ -40,6 +37,9 @@ Also test click, Escape, shell open and close, disable, re-enable, shell
 restart, uninstall, and reinstall on Omarchy 4.0 or newer. On hardware, test a
 fresh flash and an upgrade of an already-paired watch. The upgrade must retain
 the bond, owner identity, settings, and cached profile.
+Use [the hardware acceptance checks](agent-local-test.md#acceptance-checks)
+for activity, allowance, and offline behavior. Record what was actually tested
+in the release PR; the checklist itself is not evidence of a passed run.
 
 ## Build the firmware bundle
 

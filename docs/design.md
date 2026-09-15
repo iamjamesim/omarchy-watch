@@ -74,13 +74,13 @@ making the default typography unnecessarily small.
   digits, negative and three-digit weather, both hour cycles, and the longest
   supported localized date tokens.
 
-The v0.4 LVGL face uses the preferred English tier. Its input is deliberately
+The LVGL face uses the preferred English tier. Its input is deliberately
 bounded until the fallback tiers are implemented.
 
 ## Preview contract
 
-`firmware/main/watch_face_layout.c` is the visual source of truth. The firmware
-and `simulator/render_watchface.c` compile it with the same generated fonts and
+`firmware/main/watch_face_layout.c` and `watch_allowance_layout.c` are shared by
+the firmware and `simulator/render_watchface.c`, with the same generated fonts and
 LVGL 9.5 dependency. The simulator renders a deterministic 410 x 502 RGB565
 frame, then the preview tool exports square and rounded PNGs.
 
@@ -112,16 +112,15 @@ work.
 
 Agent activity distinguishes working, needs input, finished, and absent.
 The face prioritizes input requests, then unacknowledged completions, then work.
-Omarchy's exact `robot-excited` glyph pulses in opacity over 2.6 seconds while
-working and keeps the original six-pixel bounce for input. Finished uses the
-separate `robot-happy` glyph (U+F1719), swaying continuously over 4.2 seconds
-(+/-4 degrees and +/-2 pixels). Idle is hidden.
+The `robot-excited` glyph pulses in opacity while working and bounces for input.
+Finished uses the `robot-happy` glyph with a gentle sway. Idle is hidden.
 Animations run only while the screen is awake, and repeated snapshots do not
-restart them. Every distinct fresh alert plays one toggleable speaker tone and
-wakes the face for five seconds unless the watch is on battery at 15% or less.
-GPIO18 also emits a double pulse for boards
-fitted with an optional motor. This alert still fires when an earlier completion
-remains unacknowledged; retransmission and reconnect do not repeat it.
+restart them. Input requests use two equal notes; completion uses a descending
+pair. The panel's shared Sound toggle controls both. Fresh alerts wake the face
+for five seconds, except on battery at 15% or less; that cutoff suppresses the
+wake, not the sound or optional GPIO18 haptic pulse.
+An alert still fires when an earlier completion remains unacknowledged;
+retransmission and reconnect do not repeat it.
 The normal display timeout remains independent of semantic attention.
 
 Tapping the robot acknowledges every input/completion revision currently represented
@@ -138,7 +137,8 @@ shows the observation age for three seconds. See
 
 ## Evolution constraints
 
-- Old watches must be able to ignore fields introduced by a newer companion.
+- The bridge must send a packet layout supported by the watch; older watches
+  reject unknown layouts rather than ignoring appended fields.
 - A profile update is a full, versioned snapshot rather than a chain of patches.
 - Pending synchronization is derived from desired and acknowledged snapshot
   fingerprints, so restarts and overlapping changes cannot lose work.

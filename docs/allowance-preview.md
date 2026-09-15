@@ -12,32 +12,16 @@ The reset line always uses foreground. Unknown or expired readings do not trigge
 a low warning. Battery uses the same 20% threshold, plus accent while charging;
 the lightning bolt remains charging-only.
 
-The simulator uses the shared firmware renderer. Its default 79% is a fixture,
-not a live account reading, and reset time is fixed sample text unless using
-the live-profile preview.
-
-The rim keeps the bottom compartment quieter and provides an ambient fuel signal.
-Provider, remaining percentage, window, and reset countdown remain explicit so
-the frame is not mistaken for watch battery.
+The rim gives a quick indication of remaining usage. The Codex label,
+percentage, and reset countdown distinguish it from watch battery.
 
 ## Existing desktop source
 
-The installed Omarchy agents panel documents its display-ready records at
+The Omarchy agents panel exposes display-ready records at
 `${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/agents/usage/<provider>.json`.
-The relevant installed sources are:
-
-- `/usr/share/omarchy/shell/plugins/agents/README.md`
-- `/usr/share/omarchy/shell/plugins/agents/Panel.qml`
-- `/usr/share/omarchy/bin/omarchy-agent-usage-update`
-- `/usr/share/omarchy/bin/omarchy-agent-usage-codex`
-
-The updater atomically replaces each JSON record. The panel normally requests
-refreshes every 900 seconds and can refresh limits when opened. This is a local
-Omarchy integration contract, not a versioned public watch protocol.
-
-For Codex, the collector obtains limits through its existing app-server RPC
-integration. The watch bridge can read the resulting record; it need not inspect
-credentials, scan transcripts, or launch another API poller.
+This is an Omarchy integration contract, separate from the watch's Bluetooth
+protocol. The bridge reads the record and uses the existing limits collector
+for recovery; it does not inspect credentials or transcripts.
 
 Relevant shape (illustrative):
 
@@ -62,28 +46,19 @@ and display `round(100 * (1 - percent))`. Unknown must not become 0% or 100%.
 Use `resetsAt` for the countdown and retain the source `updatedAt`; receiving
 the same file again or syncing Bluetooth must not refresh its age.
 
-The bridge retains validated last-successful metadata when a subsequent fetch
-fails. It watches source-record updates and requests overdue limits through the
-existing collector during recovery. See [data-freshness.md](data-freshness.md)
-for the source, display, and reset contract.
-
-## Implemented behavior
+## Selection and validation
 
 - Codex only. Select the most depleted supported window and its reset time.
   Equal fractions use the first window in the source record.
 - Accept schema 1, finite fractions in [0,1], timezone-aware timestamps,
-  `Weekly (7-day)` and numeric `h window` / `m window` labels. Unknown windows
-  make the reading unavailable rather than hide a potentially binding limit.
-- Malformed or failed observations preserve a valid cached reading. Future-dated
-  observations are rejected. Reset-past readings show `AWAITING UPDATE`, never
-  an inferred refill. Extra unrelated JSON fields are ignored.
-- Watch source-file updates with 60-second reconciliation as fallback. Recovery
-  can invoke the existing limits collector. Profile v5 is 111 bytes; negotiation
-  retains the original v1–v4 wire shapes for older watches.
-- The watch marks readings cached after 30 minutes and updates the countdown
-  while awake/on wake. A reset deadline never implies a refill without new data.
-- Rim geometry updates only when remaining changes. No new animation, alert,
-  sound, wake timer, or always-on display behavior.
+  `Weekly (7-day)` and numeric `h window` / `m window` labels. Reject a record
+  containing an unknown window rather than silently omit a potentially binding limit.
+- Invalid, future-dated, or failed observations cannot replace a valid cached
+  reading. Without a valid cache, show unavailable. Extra unrelated fields are ignored.
+- A reset deadline never implies a refill without new data.
 
-See [agent-local-test.md](agent-local-test.md) for automated and hardware
-validation checks.
+See [data freshness](data-freshness.md) for cache, expiry, and recovery rules;
+[connectivity](connectivity.md) for wire formats; and
+[simulator previews](../simulator/README.md#allowance-preview-and-resource-color-checks)
+for fixtures and live-data renders. Hardware checks are in
+[agent-local-test.md](agent-local-test.md).

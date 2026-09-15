@@ -18,11 +18,8 @@ The desktop side has two parts separated by a small file/command boundary:
 
 The bridge reads the resolved background, foreground, and accent from
 Omarchy's current theme state and reuses Omarchy's canonical weather location.
-It fetches Open-Meteo when that location has coordinates. While awake, the
-minute reconciliation starts a refresh once the last fetch is 15 minutes old;
-resume and network recovery also check for overdue data. It retains useful
-last-successful readings while offline. The
-request includes the configured latitude and longitude; the watch itself never
+It fetches Open-Meteo when that location has coordinates. The request includes
+the configured latitude and longitude; the watch itself never
 joins Wi-Fi or calls a weather service.
 
 Theme and settings changes are event-driven. The daemon watches Omarchy's
@@ -55,6 +52,11 @@ resume, network recovery, and watch reconnect. Usage-file changes trigger prompt
 sync; recovery can invoke Omarchy's existing limits-only collector. See
 [data freshness](../docs/data-freshness.md) for timestamps, cache files, and
 expiry rules.
+
+The panel's **Up to date** status and sync time describe delivery to the watch.
+They do not confirm a successful weather fetch: failures retain cached data and
+are reported in the service journal. The watch's history marker and tap-for-age
+detail indicate older readings.
 
 ## Codex alerts
 

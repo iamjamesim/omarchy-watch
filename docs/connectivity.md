@@ -13,7 +13,7 @@ diagnostics, and recovery; it is not an ownership shortcut.
    general Bluetooth panel or `bluetoothctl`.
 4. BlueZ and NimBLE create an authenticated LE Secure Connections bond.
 5. Across that encrypted link, the desktop sends the newest mutually supported
-   effective-profile version (currently version 3), including its persistent
+   effective-profile version (currently version 5), including its persistent
    random owner ID.
 6. The watch commits the owner, complete effective profile, and profile
    revision to NVS before leaving the setup screen. It also writes UTC to the
@@ -53,8 +53,8 @@ The version 1 packet remains a supported 36-byte time-only snapshot:
 | 16 | desktop owner ID |
 
 The version 2 packet is a complete 81-byte snapshot. Its first 36 bytes keep
-the same common fields, with byte 15 becoming weather/profile flags, followed
-by:
+the same common fields, with byte offset 19 becoming weather/profile flags,
+followed by:
 
 | Bytes | Field |
 | ---: | --- |
@@ -87,9 +87,8 @@ persistent always-wake preference. The desktop negotiates down to version 1 or
 Capability bits are time sync (`1 << 0`), hour cycle (`1 << 1`), board RTC
 (`1 << 2`), theme (`1 << 3`), weather (`1 << 4`), display brightness
 (`1 << 5`), agent activity (`1 << 6`), alert sound (`1 << 7`), and distinct
-finished state (`1 << 8`). They
-describe optional device behavior; the negotiated protocol version determines
-profile packet layout.
+finished state (`1 << 8`). They describe optional device behavior; the negotiated
+protocol version determines profile packet layout.
 
 Version 4 appends an 18-byte Codex allowance snapshot to v3 (103 bytes total):
 
@@ -103,9 +102,8 @@ Version 4 appends an 18-byte Codex allowance snapshot to v3 (103 bytes total):
 Unavailable snapshots use zero window/timestamps. The source observation is
 preserved, not replaced with sync time. For v4 profiles, the bridge sends
 unavailable once a reading is over 30 minutes old or its reset has passed;
-no refill is inferred. The newest common profile version
-is negotiated, so old firmware never receives these additional bytes. v4 does
-not add wake requests or alerts for allowance updates. See [allowance-preview.md](allowance-preview.md).
+no refill is inferred. Watches negotiating v1–v3 receive no allowance fields.
+See [allowance-preview.md](allowance-preview.md) for the allowance source contract.
 
 Version 5 appends a signed little-endian eight-byte forecast-day expiry timestamp
 (111 bytes total). It retains source timestamps for cached usage and weather;
@@ -149,6 +147,12 @@ The public `0.4.0` GATT database is the compatibility boundary. Firmware
 upgrades keep its services, characteristics, and permissions stable and evolve
 behavior through versioned packets on those characteristics. This avoids
 depending on platform-specific GATT cache invalidation during routine updates.
+
+Published packet layouts must keep their sizes and field meanings. Add a
+capability bit for optional behavior that fits an existing packet, as with the
+finished activity state. New fields require a negotiated layout change on both
+sides and tests for older peers. The v4 allowance and v5 forecast-expiry layouts
+are both accepted; their definitions live in `firmware/main/watch_profile.h`.
 
 ## Reconnect and boot contract
 
@@ -197,12 +201,9 @@ not run general discovery for an already paired watch. A transport failure on a
 link BlueZ still reports as connected is reconciled against BlueZ and resets the
 half-open link before retrying.
 
-## Current vertical slice
+## Limits
 
-The current slice also accepts generic agent lifecycle events and sends their
-aggregate state over the same persistent low-duty connection. Completion wakes
-the display for five seconds and, when enabled, plays one short speaker chime;
-an optional GPIO18 motor receives the same alert transition. Semantic attention
-persists until a watch acknowledgement, a new turn in that session, or session
-end. No session content crosses this protocol. Seasonal timezone rules and
-watch-side reset UI remain subsequent profile work.
+No session content crosses the activity protocol. Display timezone offsets are
+updated by the desktop; the watch cannot apply a seasonal offset change while
+disconnected. See [design.md](design.md#agent-attention) for alert presentation
+and acknowledgement behavior.

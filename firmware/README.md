@@ -15,23 +15,15 @@ watch is at or below 15% battery. Routine background sync remains dark.
 Dynamic CPU frequency scaling, tickless idle, automatic light sleep, Bluetooth
 modem sleep, and slower owned-device advertising reduce the idle load. After a
 link loss, the watch advertises more quickly for 30 seconds before returning to
-the slower rate. Cached profiles restore the last theme, brightness, and forecast without
-waiting for Bluetooth. The v5 profile also restores Codex allowance and forecast-day expiry.
-Cached usage remains visible until its reset, current weather for up to three
-hours, and daily high/low until the forecast location's midnight. Readings older
-than 30 minutes have a history marker; tap weather or usage for the update age.
-See [data freshness](../docs/data-freshness.md) for the complete policy.
+the slower rate. Cached profiles restore desktop context before Bluetooth
+reconnects. The watch applies expiry rules locally; see
+[data freshness](../docs/data-freshness.md) for the v5 display policy and legacy behavior.
 
-The firmware distinguishes needs-input and completion sounds through the board
-speaker: two equal notes for input, a descending pair for completion. Sound is
-enabled by default and toggleable from the Omarchy panel. The GPIO18 haptic
-pattern remains available for boards fitted with an optional vibration motor.
-Working activity gently pulses. Input requests keep the original bounce, while
-finished work sways slowly through a four-degree tilt and two-pixel lateral
-movement. Fresh alerts wake the display for five seconds unless the watch is
-on battery at 15% or less. Animations stop during
-display sleep without clearing state. Tapping an input or finished indicator
-persists an acknowledgement revision in NVS and notifies the desktop when connected.
+Agent indicators distinguish working, needs input, and completion. Sound is
+enabled by default and toggleable from the Omarchy panel. Tapping an input or
+finished indicator persists an acknowledgement revision in NVS and notifies
+the desktop when connected. See [agent attention](../docs/design.md#agent-attention)
+for animations, sound patterns, and wake behavior.
 
 While the native serial/JTAG interface is connected to a USB host, ESP-IDF
 holds its built-in no-light-sleep lock so flashing and monitoring remain
@@ -62,9 +54,9 @@ cd firmware
 idf.py build
 ```
 
-The face itself lives in `main/watch_face_layout.c`. Both the device UI and the
-host preview renderer compile that source, so layout changes have one source of
-truth. From the repository root, run `./tools/render-watchface.sh` after the
+The device UI and host preview renderer share `main/watch_face_layout.c` and
+`main/watch_allowance_layout.c`. From the repository root, run
+`./tools/render-watchface.sh` after the
 first firmware configure/build; see `simulator/README.md` for details.
 
 ## Prebuilt release bundle
