@@ -17,12 +17,7 @@ _This is an independent community project, not an official Omarchy project._
 - Date, time, and weather from your desktop top bar.
 - Color scheme automatically synced to your current Omarchy theme.
 - Codex remaining allowance and reset countdown from Omarchy's agents panel, with a colored rim showing how much is left.
-- Last-known weather and usage stay visible while useful, with a history marker and tap-to-view update age.
-- Distinct Codex working, needs-input, and done indicators, with separate sounds for input requests and completion, through an optional companion integration.
-
-Allowance tracking, data freshness, and the new Codex indicators are unreleased.
-To test them, build and install both the desktop bridge and firmware from this
-checkout. Needs-input alerts require the optional Codex companion v0.2.0 or newer.
+- Codex working, needs-input, and done indicators with alert sounds for needs-input and done, through an optional companion integration.
 
 ## Install
 
@@ -31,6 +26,9 @@ The easiest way to get started is to ask your coding agent to follow the steps b
 Omarchy Watch requires Omarchy 4.0 or newer, Bluetooth LE, and the exact
 Waveshare ESP32-S3-Touch-AMOLED-2.06 board. The board is development hardware,
 not a waterproof consumer watch.
+
+Until the next release, allowance tracking and the new Codex indicators require
+building and installing the desktop bridge and firmware from this checkout.
 
 ### 1. Flash the watch
 
@@ -76,7 +74,8 @@ Codex. This keeps the base watch installation independent of agent
 configuration and lets users enable or remove Codex support without
 reinstalling Omarchy Watch. The companion is never installed automatically.
 
-Needs-input alerts cover blocking questions and permission requests. After
+Needs-input alerts require companion v0.2.0 or newer and cover blocking questions
+and permission requests. After
 installing or updating the companion, start a new Codex session and review its
 hooks with `/hooks`. Allowance tracking reads Omarchy's agents panel separately
 and does not require the companion plugin.
