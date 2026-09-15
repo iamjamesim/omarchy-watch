@@ -495,6 +495,12 @@ Panel {
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
             font.underline: true
+            activeFocusOnTab: true
+            Accessible.role: Accessible.Link
+            Accessible.name: "Open-Meteo weather data"
+            Accessible.onPressAction: Qt.openUrlExternally("https://open-meteo.com/")
+            Keys.onReturnPressed: Qt.openUrlExternally("https://open-meteo.com/")
+            Keys.onEnterPressed: Qt.openUrlExternally("https://open-meteo.com/")
 
             MouseArea {
               anchors.fill: parent
