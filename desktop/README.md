@@ -209,7 +209,7 @@ does not rely on a mutable pending flag.
 
 Watch settings live beside the identity in `settings.json`.
 
-Unacknowledged agent completion envelopes live in `agent-activity.json`. This
+Unacknowledged agent input requests and completions live in `agent-activity.json`. This
 file contains no conversation content and is pruned after acknowledgement or a
 24-hour recovery limit.
 

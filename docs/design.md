@@ -26,14 +26,16 @@ and fatal-error screens are system states rather than face variants.
 - JetBrains Mono throughout
 - compact date and battery rail
 - time is the dominant element
-- two restrained horizontal rules divide time, weather, and location
+- two horizontal rules divide time, weather, and the footer
 - weather uses a two-column composition: icon/temperature and condition/range
-- the centered location footer identifies the forecast's provenance
-- battery level, charging state, weather, and location are live on hardware
-- the clock is the dominant accent focal point; the battery stays neutral until
-  charging, while an active agent uses Omarchy's accent robot in the top rail
+- v4 profiles show Codex remaining allowance and reset time in the footer;
+  older profiles show the forecast location
+- battery level, charging state, weather, and allowance are live on hardware
+- the clock is the dominant accent focal point; the battery uses accent while
+  charging or at 20% or less, and an active agent uses an accent robot in the top rail
 - tapping the battery temporarily replaces its glyph with the exact percentage
-- all supporting text and weather content remain foreground-colored
+- weather and reset text use foreground; allowance text uses accent at 20% or less
+- the allowance rim shows remaining capacity in accent over a 40% opacity track
 - no controls, cards, vertical dividers, or decorative chrome
 - no image background; the face model may gain an optional background later
 
@@ -116,7 +118,8 @@ separate `robot-happy` glyph (U+F1719), swaying continuously over 4.2 seconds
 (+/-4 degrees and +/-2 pixels). Idle is hidden.
 Animations run only while the screen is awake, and repeated snapshots do not
 restart them. Every distinct fresh alert plays one toggleable speaker tone and
-wakes the face for five seconds. GPIO18 also emits a double pulse for boards
+wakes the face for five seconds unless the watch is on battery at 15% or less.
+GPIO18 also emits a double pulse for boards
 fitted with an optional motor. This alert still fires when an earlier completion
 remains unacknowledged; retransmission and reconnect do not repeat it.
 The normal display timeout remains independent of semantic attention.

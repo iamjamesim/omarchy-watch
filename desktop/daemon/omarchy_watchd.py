@@ -361,8 +361,9 @@ class AgentActivityLedger:
                 previous["turn"] == turn and
                 previous.get("needsInput", False) == needs_input):
             return False
-        if previous and previous["state"] == "working" and previous["turn"] != turn:
-            # A delayed completion from an older turn must not replace newer work.
+        if (previous and previous["turn"] != turn and
+                (previous["state"] == "working" or previous.get("needsInput", False))):
+            # A delayed event must not replace a running or blocked newer turn.
             return False
         self.sessions[key] = {
             "source": source,

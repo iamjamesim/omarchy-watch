@@ -635,7 +635,7 @@ void watch_ui_show_error(const char *message)
     bsp_display_unlock();
 }
 
-void watch_ui_apply_time(int64_t unix_time, int16_t offset_minutes, uint8_t cycle)
+static void apply_time(int64_t unix_time, int16_t offset_minutes, uint8_t cycle)
 {
     struct timeval current = {
         .tv_sec = (time_t)unix_time,
@@ -645,6 +645,13 @@ void watch_ui_apply_time(int64_t unix_time, int16_t offset_minutes, uint8_t cycl
     utc_offset_minutes = offset_minutes;
     hour_cycle = cycle == 12 ? 12 : 24;
     watch_ui_show_face();
+}
+
+void watch_ui_apply_time(int64_t unix_time, int16_t offset_minutes, uint8_t cycle)
+{
+    /* A v1 desktop has no allowance fields, including after a live downgrade. */
+    allowance_supported = false;
+    apply_time(unix_time, offset_minutes, cycle);
 }
 
 static void apply_weather(const omarchy_profile_v2_t *profile)
@@ -671,7 +678,7 @@ void watch_ui_apply_profile_v2(const omarchy_profile_v2_t *profile)
     memcpy(face_theme.accent, profile->foreground_rgb, sizeof(face_theme.accent));
     active_brightness_percent = DEFAULT_BRIGHTNESS_PERCENT;
     apply_weather(profile);
-    watch_ui_apply_time(profile->unix_time, profile->utc_offset_minutes, profile->hour_cycle);
+    apply_time(profile->unix_time, profile->utc_offset_minutes, profile->hour_cycle);
     finish_profile_update(false);
 }
 
@@ -689,7 +696,7 @@ void watch_ui_apply_profile_v3(const omarchy_profile_v3_t *profile)
     memcpy(face_theme.accent, profile->accent_rgb, sizeof(face_theme.accent));
     active_brightness_percent = profile->brightness_percent;
     apply_weather((const omarchy_profile_v2_t *)profile);
-    watch_ui_apply_time(profile->unix_time, profile->utc_offset_minutes, profile->hour_cycle);
+    apply_time(profile->unix_time, profile->utc_offset_minutes, profile->hour_cycle);
     finish_profile_update(preview_started);
 }
 

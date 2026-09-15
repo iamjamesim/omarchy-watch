@@ -86,7 +86,8 @@ persistent always-wake preference. The desktop negotiates down to version 1 or
 
 Capability bits are time sync (`1 << 0`), hour cycle (`1 << 1`), board RTC
 (`1 << 2`), theme (`1 << 3`), weather (`1 << 4`), display brightness
-(`1 << 5`), agent activity (`1 << 6`), and completion sound (`1 << 7`). They
+(`1 << 5`), agent activity (`1 << 6`), alert sound (`1 << 7`), and distinct
+finished state (`1 << 8`). They
 describe optional device behavior; the negotiated protocol version determines
 profile packet layout.
 
@@ -103,7 +104,7 @@ Unavailable snapshots use zero window/timestamps. The source observation is
 preserved, not replaced with sync time. Both sides expire readings after 30
 minutes or at reset; no refill is inferred. The newest common profile version
 is negotiated, so old firmware never receives these additional bytes. v4 does
-not request display wake or add alerts. See [allowance-preview.md](allowance-preview.md).
+not add wake requests or alerts for allowance updates. See [allowance-preview.md](allowance-preview.md).
 
 Agent activity uses a separate encrypted 14-byte snapshot so older profile
 versions remain unchanged:
@@ -121,7 +122,7 @@ versions remain unchanged:
 The desktop writes aggregate snapshots. Reading or receiving a notification
 from the same characteristic returns the watch's acknowledgement revision. A
 snapshot restores visual state after reconnect, while the alert flag is sent
-once for each fresh, not-yet-delivered completion. Sound is capability-gated so
+once for each fresh, not-yet-delivered input request or completion. Sound is capability-gated so
 older firmware never receives a flag it cannot parse.
 
 Capability bit 8 advertises the distinct finished state. The desktop maps
@@ -134,7 +135,8 @@ The local `agent-event` command accepts `needs-input` alongside `working`,
 `completed`, `interrupted`, and `ended`. Input requests take priority over
 unacknowledged completions, which take priority over working sessions. Providers
 must explicitly report input requests; a completed turn is not inspected for
-questions. Existing Codex lifecycle hooks report completion only.
+questions. Codex companion v0.2.0 adds blocking-question and permission-request
+events; older companion versions report lifecycle activity and completion.
 
 The public `0.4.0` GATT database is the compatibility boundary. Firmware
 upgrades keep its services, characteristics, and permissions stable and evolve

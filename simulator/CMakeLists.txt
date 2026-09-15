@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 project(omarchy_watch_simulator C)
+enable_testing()
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -47,3 +48,8 @@ target_compile_options(test-rim PRIVATE -UNDEBUG)
 add_executable(test-sound test_sound.c)
 target_include_directories(test-sound PRIVATE ../firmware/main)
 target_compile_options(test-sound PRIVATE -UNDEBUG)
+
+add_test(NAME profile COMMAND test-profile)
+add_test(NAME rim COMMAND test-rim)
+add_test(NAME sound COMMAND test-sound)
+add_test(NAME resource-colors COMMAND render-watchface ${CMAKE_CURRENT_BINARY_DIR}/test-face.ppm)

@@ -42,7 +42,11 @@ jobs:
             desktop/daemon/omarchy_watchd.py \
             desktop/bin/omarchy-watchctl
       - name: Run desktop tests
-        run: python3 -m unittest discover -s desktop/tests
+        run: |
+          mkdir -p simulator/build
+          cc -std=c11 -Wall -Wextra -Werror -I firmware/main \
+            simulator/test_profile.c -o simulator/build/test-profile
+          python3 -m unittest discover -s desktop/tests
 
   firmware:
     runs-on: ubuntu-latest
@@ -54,3 +58,9 @@ jobs:
           esp_idf_version: v5.5.5
           target: esp32s3
           path: firmware
+          command: |
+            set -e
+            idf.py build
+            cmake -S ../simulator -B ../simulator/build
+            cmake --build ../simulator/build --parallel 2
+            ctest --test-dir ../simulator/build --output-on-failure

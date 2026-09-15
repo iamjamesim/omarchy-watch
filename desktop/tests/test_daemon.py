@@ -866,6 +866,21 @@ class AgentActivityTests(unittest.TestCase):
             self.assertEqual(ledger.sessions["provider:session-1"]["turn"], "turn-2")
             self.assertEqual(ledger.aggregate()[0], daemon.ACTIVITY_WORKING)
 
+    def test_old_turn_cannot_replace_current_input_request(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = self.make_ledger(directory)
+            ledger.working("provider", "session-1", "turn-2")
+            ledger.completed("provider", "session-1", "turn-2", needs_input=True)
+            revision = ledger.revision
+            for needs_input in (False, True):
+                with self.subTest(needs_input=needs_input):
+                    self.assertFalse(ledger.completed(
+                        "provider", "session-1", "turn-1", needs_input=needs_input
+                    ))
+                    self.assertEqual(ledger.revision, revision)
+                    self.assertEqual(ledger.aggregate()[0], daemon.ACTIVITY_ATTENTION)
+                    self.assertEqual(ledger.sessions["provider:session-1"]["turn"], "turn-2")
+
     def test_retained_watch_ack_keeps_future_revisions_monotonic(self):
         with tempfile.TemporaryDirectory() as directory:
             ledger = self.make_ledger(directory, epoch=100)

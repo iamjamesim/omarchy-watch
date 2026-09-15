@@ -8,6 +8,8 @@ release title, and artifact names use the same semantic version.
 ```bash
 ./tools/validate-plugin.sh
 ./tools/lint-plugin.sh
+./tools/render-watchface.sh
+ctest --test-dir simulator/build --output-on-failure
 python3 -m unittest discover -s desktop/tests
 ```
 
