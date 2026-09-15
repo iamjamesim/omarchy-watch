@@ -17,6 +17,7 @@ class WeatherStatusTests(unittest.TestCase):
         self.now = int(time.time())
         self.location = {"name": "TEST", "latitude": 1, "longitude": 2}
         self.clock = mock.patch.object(daemon.time, "time", return_value=self.now).start()
+        self.monotonic = mock.patch.object(daemon.time, "monotonic", return_value=1000).start()
         self.location_mock = mock.patch.object(daemon, "weather_location", return_value=self.location).start()
         self.units_mock = mock.patch.object(daemon, "weather_unit_override", return_value=False).start()
         self.addCleanup(mock.patch.stopall)
@@ -24,6 +25,8 @@ class WeatherStatusTests(unittest.TestCase):
         w.watch_protocol = 5
         w.weather = self.reading(600)
         w.weather_refresh_context = [1, 2, False]
+        # The cached request is outside the retry cooldown, independent of host uptime.
+        w.weather_refresh_attempt = self.monotonic.return_value - 600
         w.weather_fetch_failed = False
         w.context_refresh_inflight = False
         w.state = {"status": "ready", "paired": True, "connected": True}
@@ -176,6 +179,10 @@ class WeatherStatusTests(unittest.TestCase):
         retry.assert_not_called()
         w.ensure_connection.assert_called_once_with("manual sync")
         self.assertTrue(self.status()["weatherFetchFailed"])
+        self.monotonic.return_value += 60
+        thread = self.start_refresh()
+        thread.assert_called_once()
+        self.assertTrue(self.status()["weatherRefreshing"])
 
     def test_manual_sync_starts_overdue_refresh(self):
         w = self.watch
