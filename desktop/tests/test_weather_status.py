@@ -89,6 +89,7 @@ class WeatherStatusTests(unittest.TestCase):
         status = self.status()
         self.assertFalse(status["weatherRefreshing"])
         self.assertFalse(status["weatherFetchFailed"])
+        self.assertEqual(status["weatherManualRetryAt"], 0)
         self.assertEqual(status["weatherStatus"], "fresh")
         self.assertEqual(status["weatherUpdated"], self.now)
 

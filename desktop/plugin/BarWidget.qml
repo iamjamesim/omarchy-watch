@@ -49,15 +49,15 @@ Panel {
   readonly property bool weatherRefreshing: Boolean(watchState.weatherRefreshing)
   readonly property bool weatherRetryCooling: nowEpoch < Number(watchState.weatherManualRetryAt || 0)
   readonly property string weatherLabel: {
-    if (weatherRefreshing) return weatherFailed ? "RETRYING" : "UPDATING"
+    if (weatherRefreshing && weatherFailed) return "RETRYING"
     if (weatherFailed) return "UPDATE FAILED"
+    if (weatherRefreshing && weatherState === "unavailable") return "GETTING WEATHER…"
     switch (weatherState) {
-    case "unconfigured": return "SET LOCATION"
-    case "fresh": return "AVAILABLE"
-    case "cached": return "SAVED DATA"
-    case "forecast": return "HIGH / LOW ONLY"
-    case "unavailable": return "NO DATA"
-    default: return "UNKNOWN"
+    case "unconfigured": return "LOCATION NEEDED"
+    case "fresh":
+    case "cached": return "UPDATED " + relativeSync(watchState.weatherUpdated)
+    case "forecast": return "CURRENT UNAVAILABLE"
+    default: return "UNAVAILABLE"
     }
   }
   readonly property color foreground: root.bar ? root.bar.foreground : Color.foreground
@@ -123,17 +123,20 @@ Panel {
     var minutes = Math.floor(seconds / 60)
     if (minutes < 60) return minutes + " MINUTE" + (minutes === 1 ? "" : "S") + " AGO"
     var hours = Math.floor(minutes / 60)
-    return hours + " HOUR" + (hours === 1 ? "" : "S") + " AGO"
+    if (hours < 24) return hours + " HOUR" + (hours === 1 ? "" : "S") + " AGO"
+    var days = Math.floor(hours / 24)
+    return days + " DAY" + (days === 1 ? "" : "S") + " AGO"
   }
 
   function weatherDetail() {
-    if (weatherState === "unknown") return "Weather status unavailable."
-    if (weatherState === "unconfigured") return "Choose a location in the desktop weather panel."
-    if (weatherState === "forecast") return "Today's high / low available; current conditions expired."
-    if (weatherState === "unavailable") return "No weather data available."
-    if (weatherFailed || weatherState === "cached")
-      return "Saved conditions from " + relativeSync(watchState.weatherUpdated).toLowerCase()
-    return "Updated " + relativeSync(watchState.weatherFetched).toLowerCase()
+    if (weatherState === "unconfigured") return "Choose a location in the Weather panel."
+    if (weatherState === "forecast") return "Today's high and low are still available."
+    if (weatherState === "unavailable")
+      return weatherRefreshing && !weatherFailed ? ""
+        : weatherFailed ? "Weather couldn't be updated." : "No weather data available."
+    if (weatherFailed)
+      return "Using weather from " + relativeSync(watchState.weatherUpdated).toLowerCase() + "."
+    return ""
   }
 
   onOpenedChanged: if (opened) {
@@ -229,8 +232,8 @@ Panel {
             textFormat: Text.PlainText
             text: root.status === "found" ? "READY TO PAIR"
               : root.status === "pairing" ? "PAIRING"
-              : root.status === "syncing" ? "SYNCHRONIZING"
-              : root.status === "ready" && root.pending ? "SYNC PENDING"
+              : root.status === "syncing"
+                ? (Boolean(root.watchState.connected) ? "SYNCING" : "CONNECTING")
               : root.status === "ready" ? "CONNECTED"
               : root.status === "bluetooth-off" ? "BLUETOOTH OFF"
               : root.status === "disconnected" ? "DISCONNECTED"
@@ -403,7 +406,7 @@ Panel {
           visible: Number(root.watchState.lastSynced) > 0
             && Boolean(root.watchState.syncedWeather)
             && root.watchState.syncedWeather.valid === false
-          text: "Weather unavailable at last sync"
+          text: "Last sync did not include weather"
           color: root.dim
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
@@ -413,7 +416,7 @@ Panel {
         Text {
           visible: root.pending && root.status !== "syncing"
           Layout.fillWidth: true
-          text: "Changes waiting to sync"
+          text: "Waiting to sync"
           color: root.dim
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
@@ -421,7 +424,7 @@ Panel {
 
         Button {
           id: syncButton
-          visible: root.ready || root.status === "syncing"
+          visible: root.ready || (root.status === "syncing" && Boolean(root.watchState.connected))
           Layout.fillWidth: true
           text: root.status === "syncing" ? "SYNCING" : "SYNC NOW"
           bordered: true
@@ -454,6 +457,7 @@ Panel {
         }
 
         Text {
+          visible: root.weatherDetail() !== ""
           Layout.fillWidth: true
           textFormat: Text.PlainText
           text: root.weatherDetail()
@@ -464,14 +468,12 @@ Panel {
         }
 
         Button {
-          visible: root.weatherFailed
+          visible: root.weatherFailed && !root.weatherRefreshing && !root.weatherRetryCooling
           Layout.fillWidth: true
-          text: root.weatherRefreshing ? "RETRYING"
-            : root.weatherRetryCooling ? "RETRY IN " + Math.ceil(Number(root.watchState.weatherManualRetryAt) - root.nowEpoch) + "S"
-            : "RETRY"
+          text: "RETRY"
           bordered: true
           focusable: true
-          enabled: !command.running && !root.weatherRefreshing && !root.weatherRetryCooling
+          enabled: !command.running
           foreground: root.foreground
           fontFamily: root.fontFamily
           onClicked: root.run(["weather-retry"])

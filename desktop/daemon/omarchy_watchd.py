@@ -825,7 +825,10 @@ class WatchDaemon:
         """Describe the source separately from delivery of a profile to the watch."""
         now = int(time.time()) if epoch is None else epoch
         location = weather_location()
-        context = [location.get("latitude"), location.get("longitude"), weather_unit_override()]
+        context = [
+            location.get("latitude"), location.get("longitude"),
+            weather_unit_override(),
+        ]
         same_request = bool(location) and context == getattr(self, "weather_refresh_context", None)
         weather = self.effective_weather(now) if location else {"valid": False}
         updated = weather.get("updatedAt", 0)
@@ -1093,7 +1096,9 @@ class WatchDaemon:
         return (self.weather.get("context") != context or
                 not 0 <= time.time() - self.weather.get("fetchedAt", 0) < WEATHER_REFRESH_SECONDS)
 
-    def refresh_effective_context(self, refresh_weather: bool = True, *, retry_weather: bool = False) -> None:
+    def refresh_effective_context(
+        self, refresh_weather: bool = True, *, retry_weather: bool = False
+    ) -> None:
         palette = theme_palette(self.theme_path, self.theme_shell_path)
         if palette != self.palette:
             self.palette = palette
@@ -1103,7 +1108,10 @@ class WatchDaemon:
         location = weather_location()
         if not location:
             return
-        request_context = [location.get("latitude"), location.get("longitude"), weather_unit_override()]
+        request_context = [
+            location.get("latitude"), location.get("longitude"),
+            weather_unit_override(),
+        ]
         same_request = request_context == getattr(self, "weather_refresh_context", None)
         failed = same_request and getattr(self, "weather_fetch_failed", False)
         if retry_weather and not failed:
@@ -1153,6 +1161,7 @@ class WatchDaemon:
             self.weather_fetch_failed = False
             self.weather_failures = 0
             self.weather_retry_at = 0
+            self.weather_manual_retry_at = 0
             try:
                 self.cache_weather(weather)
             except OSError as error:
@@ -1166,7 +1175,10 @@ class WatchDaemon:
         elif error:
             self.weather_fetch_failed = True
             self.weather_failures = min(getattr(self, "weather_failures", 0) + 1, 5)
-            delay = min(WEATHER_RETRY_MIN_SECONDS * 2 ** (self.weather_failures - 1), WEATHER_REFRESH_SECONDS)
+            delay = min(
+                WEATHER_RETRY_MIN_SECONDS * 2 ** (self.weather_failures - 1),
+                WEATHER_REFRESH_SECONDS,
+            )
             self.weather_retry_at = int(time.time()) + delay
             self.log(f"Weather refresh kept cached data; retry in {delay}s: {error}")
             self.write_state()

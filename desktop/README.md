@@ -61,10 +61,11 @@ while the watch is disconnected.
 
 Weather is fetched about every 15 minutes. Failed requests automatically retry
 after 1, 2, 4, 8, then 15 minutes, retaining usable cached data. **Retry** appears
-only after failure and can skip the longer backoff. All triggers
-share one in-flight request and a one-minute minimum between attempts, including
-location changes and manual retries. A successful fetch resumes the normal
-cadence; changed data syncs automatically when the watch is connected.
+after a failure when another request can be made; it can skip the longer backoff.
+All triggers share one in-flight request and a one-minute minimum
+between attempts, including location changes and manual retries. A successful
+fetch resumes the normal cadence; changed data syncs automatically when the
+watch is connected.
 
 The status document separates the reading's source time (`weatherUpdated`) and
 last successful download (`weatherFetched`) from the last successful delivery
