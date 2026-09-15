@@ -27,12 +27,9 @@ Omarchy Watch requires Omarchy 4.0 or newer, Bluetooth LE, and the exact
 Waveshare ESP32-S3-Touch-AMOLED-2.06 board. The board is development hardware,
 not a waterproof consumer watch.
 
-Until the next release, allowance tracking and the new Codex indicators require
-building and installing the desktop bridge and firmware from this checkout.
-
 ### 1. Flash the watch
 
-Download `omarchy-watch-v0.5.3-flash.tar.gz` from the
+Download `omarchy-watch-v0.6.0-flash.tar.gz` from the
 [latest release](https://github.com/iamjamesim/omarchy-watch/releases/latest),
 extract it, connect the board's USB-C programming port, and run:
 

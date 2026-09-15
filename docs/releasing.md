@@ -15,7 +15,8 @@ After those changes land, open a separate `Prepare vX.Y.Z` PR that updates:
 - `manifest.json`, `firmware/CMakeLists.txt`, and the firmware version constants
   in `firmware/main/watch_profile.h` to the same version.
 - README release requirements and download artifact names.
-- `.github/release-notes/vX.Y.Z.md` with the final release behavior and update steps.
+- `.github/release-notes/vX.Y.Z.md` with the final release behavior and update
+  steps. Write body copy only; the workflow uses the tag as the release title.
 
 Protocol versions describe wire compatibility and belong with the feature
 changes that introduce them; they are independent of the release version.
