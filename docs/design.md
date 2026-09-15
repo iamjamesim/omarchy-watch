@@ -28,7 +28,7 @@ and fatal-error screens are system states rather than face variants.
 - time is the dominant element
 - two horizontal rules divide time, weather, and the footer
 - weather uses a two-column composition: icon/temperature and condition/range
-- v4 profiles show Codex remaining allowance and reset time in the footer;
+- v4 and later profiles show Codex remaining allowance and reset time in the footer;
   older profiles show the forecast location
 - battery level, charging state, weather, and allowance are live on hardware
 - the clock is the dominant accent focal point; the battery uses accent while

@@ -101,8 +101,9 @@ Version 4 appends an 18-byte Codex allowance snapshot to v3 (103 bytes total):
 | 8 | window reset Unix timestamp, signed little-endian |
 
 Unavailable snapshots use zero window/timestamps. The source observation is
-preserved, not replaced with sync time. Both sides expire readings after 30
-minutes or at reset; no refill is inferred. The newest common profile version
+preserved, not replaced with sync time. For v4 profiles, the bridge sends
+unavailable once a reading is over 30 minutes old or its reset has passed;
+no refill is inferred. The newest common profile version
 is negotiated, so old firmware never receives these additional bytes. v4 does
 not add wake requests or alerts for allowance updates. See [allowance-preview.md](allowance-preview.md).
 

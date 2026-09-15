@@ -46,7 +46,7 @@ to create a temporary socket. This does not contact the actual watch.
    original hook paths; avoid removing a cache they still use.
 4. Confirm bridge status reports protocol 5. Check the Omarchy agents panel has
    a fresh Codex allowance record. File updates should sync promptly; the fallback
-  reconciliation runs every 60 seconds.
+   reconciliation runs every 60 seconds.
 
 ## Acceptance checks
 
