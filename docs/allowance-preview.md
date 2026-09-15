@@ -1,8 +1,7 @@
 # Codex allowance rim
 
-The selected design is a thin rounded perimeter, with provider, remaining
-percentage, and reset countdown in the former location compartment. The rejected
-bar experiment and temporary on-device calibration controls have been removed.
+The allowance display uses a thin rounded perimeter, with provider, remaining
+percentage, and reset countdown below the weather.
 
 Physical-watch review settled on a 115 px outer radius, 2 px centerline inset,
 and 3 px stroke. The depleted track uses the accent at 40% opacity; remaining
@@ -15,7 +14,7 @@ the lightning bolt remains charging-only.
 
 The simulator uses the shared firmware renderer. Its default 79% is a fixture,
 not a live account reading, and reset time is fixed sample text unless using
-the live-profile preview. Transport and expiration are implemented.
+the live-profile preview.
 
 The rim keeps the bottom compartment quieter and provides an ambient fuel signal.
 Provider, remaining percentage, window, and reset countdown remain explicit so
@@ -87,6 +86,5 @@ does not by itself provide an independent collection service.
 - Rim geometry updates only when remaining changes. No new animation, alert,
   sound, wake timer, or always-on display behavior.
 
-The 30-minute freshness policy and physical readability remain trial decisions.
-General weather/sync UX is separate. See [agent-local-test.md](agent-local-test.md)
-for the deployment/test handoff.
+See [agent-local-test.md](agent-local-test.md) for automated and hardware
+validation checks.
