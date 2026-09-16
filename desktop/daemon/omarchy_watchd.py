@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3 -I
 """Bluetooth owner and profile bridge for Omarchy Watch."""
 
 from __future__ import annotations
@@ -922,9 +922,19 @@ class WatchDaemon:
         self.usage_refresh_inflight = True
         def collect():
             try:
-                subprocess.run(["omarchy-agent-usage-update", "--limits-only", "codex"],
+                environment = {
+                    key: os.environ[key]
+                    for key in (
+                        "HOME", "USER", "LOGNAME", "XDG_CONFIG_HOME",
+                        "XDG_STATE_HOME", "XDG_CACHE_HOME", "CODEX_HOME",
+                    )
+                    if key in os.environ
+                }
+                environment.update(PATH="/usr/bin", OMARCHY_PATH="/usr/share/omarchy")
+                subprocess.run(["/usr/bin/omarchy-agent-usage-update", "--limits-only", "codex"],
                                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                               stderr=subprocess.DEVNULL, timeout=60, check=True)
+                               stderr=subprocess.DEVNULL, timeout=60, check=True,
+                               env=environment)
             except (OSError, subprocess.SubprocessError) as error:
                 self.log(f"Usage refresh kept cached data: {error}")
             finally:

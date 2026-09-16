@@ -102,6 +102,11 @@ widget. Upgrades restart the user daemon and Omarchy shell after the completed
 panel installation, while preserving an existing bar placement. It does not
 modify Omarchy's system files and requires no root access.
 
+The launcher uses a minimal environment and fixed system executables. File
+installation and removal walk each destination through no-follow directory
+descriptors, publish complete files atomically, and refuse unsafe writable or
+symbolically linked destination directories instead of following them.
+
 Re-run the command after changing desktop source files.
 
 ## Pair a new watch
