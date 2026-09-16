@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.iamjamesim.omarchy-watch",
   "name": "Omarchy Watch",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "author": "James Im",
   "license": "MIT",
   "description": "Discover, pair, and synchronize an Omarchy Watch from the bar.",
