@@ -11,7 +11,9 @@ jobs:
   desktop:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - name: Validate manifest
         run: |
           jq -e '
@@ -39,6 +41,7 @@ jobs:
           bash -n tools/render-watchface.sh
           bash -n tools/validate-plugin.sh
           python3 -m py_compile \
+            desktop/manage_local.py \
             desktop/daemon/omarchy_watchd.py \
             desktop/bin/omarchy-watchctl
       - name: Run desktop tests
@@ -51,9 +54,11 @@ jobs:
   firmware:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - name: Build firmware with ESP-IDF 5.5.5
-        uses: espressif/esp-idf-ci-action@v1
+        uses: espressif/esp-idf-ci-action@e6f5c74232b1ccd4c97ed641f1e48553853f1fd5 # v1.2.0
         with:
           esp_idf_version: v5.5.5
           target: esp32s3

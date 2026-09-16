@@ -114,7 +114,12 @@ class FreshnessTests(unittest.TestCase):
             self.assertTrue(self.watch.usage_refresh_inflight)
             with mock.patch.object(daemon.subprocess, 'run') as run, mock.patch.object(daemon.GLib, 'idle_add'):
                 thread.call_args.kwargs['target']()
-                self.assertEqual(run.call_args.args[0], ['omarchy-agent-usage-update', '--limits-only', 'codex'])
+                self.assertEqual(
+                    run.call_args.args[0],
+                    ['/usr/bin/omarchy-agent-usage-update', '--limits-only', 'codex'],
+                )
+                self.assertEqual(run.call_args.kwargs['env']['PATH'], '/usr/bin')
+                self.assertNotIn('BASH_ENV', run.call_args.kwargs['env'])
             self.watch.usage_refresh_finished()
             self.watch.refresh_usage_if_due()
             thread.assert_called_once()  # retry cooldown
